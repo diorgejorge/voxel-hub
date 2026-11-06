@@ -7,6 +7,8 @@ use crate::library::{self as lib, Asset};
 use crate::voxel::{mesh, Grid};
 use std::hash::{BuildHasher, Hasher};
 use std::path::Path;
+use std::sync::atomic::{AtomicBool, Ordering::SeqCst};
+use std::sync::Arc;
 use tiny_http::{Header, Method, Request, Response, Server};
 
 const INDEX: &str = include_str!("../web/index.html");
@@ -29,20 +31,39 @@ pub fn run(root: &Path, port: u16, open: bool) -> Result<(), String> {
     if open {
         open_browser(&url);
     }
+    let (root, token) = (Arc::new(root.to_path_buf()), Arc::new(token));
+    // Uma thread por pedido: a análise (lenta) não trava a página nem o Cancelar.
     for mut req in server.incoming_requests() {
-        let res = match check(&req, port, &token) {
-            Ok(()) => route(root, &mut req),
-            Err(e) => {
-                let _ = req.respond(json(&serde_json::json!({ "error": e })).with_status_code(403));
-                continue;
-            }
-        };
-        let _ = match res {
-            Ok(r) => req.respond(r),
-            Err(e) => req.respond(json(&serde_json::json!({ "error": e })).with_status_code(400)),
-        };
+        let (root, token) = (root.clone(), token.clone());
+        std::thread::spawn(move || {
+            let res = match check(&req, port, &token) {
+                Ok(()) => route(&root, &mut req),
+                Err(e) => {
+                    let _ =
+                        req.respond(json(&serde_json::json!({ "error": e })).with_status_code(403));
+                    return;
+                }
+            };
+            let _ = match res {
+                Ok(r) => req.respond(r),
+                Err(e) => {
+                    req.respond(json(&serde_json::json!({ "error": e })).with_status_code(400))
+                }
+            };
+        });
     }
     Ok(())
+}
+
+/// Só uma análise por vez (cada uma custa); o Cancelar marca a atual para ser descartada.
+static BUSY: AtomicBool = AtomicBool::new(false);
+static CANCEL: AtomicBool = AtomicBool::new(false);
+
+struct Busy;
+impl Drop for Busy {
+    fn drop(&mut self) {
+        BUSY.store(false, SeqCst);
+    }
 }
 
 type Res = Response<std::io::Cursor<Vec<u8>>>;
@@ -91,21 +112,21 @@ fn route(root: &Path, req: &mut Request) -> Result<Res, String> {
                 "model": o.model, "effort": o.effort, "models": analyze::MODELS.map(|m| m.0),
             })))
         }
-        (Method::Post, ["api", "cli"]) => {
-            let mut body = String::new();
-            req.as_reader()
-                .read_to_string(&mut body)
-                .map_err(|e| e.to_string())?;
-            let v: serde_json::Value = serde_json::from_str(&body).map_err(|e| e.to_string())?;
-            let args: Vec<String> = v["args"]
-                .as_array()
-                .ok_or("args deve ser uma lista")?
-                .iter()
-                .map(|a| a.as_str().unwrap_or("").to_string())
-                .collect();
-            Ok(json(&run_cli(root, &args)?))
+        (Method::Post, ["api", "analyze", "cancel"]) => {
+            let running = BUSY.load(SeqCst);
+            CANCEL.store(running, SeqCst);
+            Ok(json(&serde_json::json!({ "cancelled": running,
+                "message": "a análise já paga vai terminar e será descartada" })))
         }
         (Method::Post, ["api", "analyze", scene, ext]) => {
+            if BUSY.swap(true, SeqCst) {
+                return Ok(json(
+                    &serde_json::json!({ "error": "já tem uma análise rodando; espere ela terminar" }),
+                )
+                .with_status_code(409));
+            }
+            let _busy = Busy;
+            CANCEL.store(false, SeqCst);
             let mut img = Vec::new();
             req.as_reader()
                 .read_to_end(&mut img)
@@ -117,6 +138,7 @@ fn route(root: &Path, req: &mut Request) -> Result<Res, String> {
                 scene,
                 false,
                 &analyze::Opts::from_env().with_model(query(req.url(), "model")),
+                &|| CANCEL.load(SeqCst),
             )?))
         }
         _ => Ok(Response::from_string("não encontrado").with_status_code(404)),
@@ -129,65 +151,6 @@ fn query(url: &str, key: &str) -> Option<String> {
         .filter_map(|kv| kv.split_once('='))
         .find(|(k, _)| *k == key)
         .map(|(_, v)| v.to_string())
-}
-
-/// Comandos que o menu da página pode rodar (nunca "serve").
-const CLI_ALLOWED: [&str; 4] = ["list", "review", "analyze", "export"];
-
-/// Roda o próprio executável com --json, sem shell (argumentos vão direto, sem interpretação).
-fn run_cli(root: &Path, args: &[String]) -> Result<serde_json::Value, String> {
-    let cmd = args.first().ok_or("informe um comando")?;
-    if !CLI_ALLOWED.contains(&cmd.as_str()) {
-        return Err(format!(
-            "comando não permitido: {cmd} (use {})",
-            CLI_ALLOWED.join(", ")
-        ));
-    }
-    if args
-        .iter()
-        .any(|a| a == "--root" || a.starts_with("--root="))
-    {
-        return Err("--root não é permitido pelo menu".into());
-    }
-    if let Some(o) = out_arg(args).filter(|o| !inside(o)) {
-        return Err(format!(
-            "saída fora da biblioteca: {o} (use uma pasta dentro dela, ex.: exports)"
-        ));
-    }
-    let root = std::fs::canonicalize(root).map_err(|e| e.to_string())?;
-    let exe = std::env::current_exe().map_err(|e| e.to_string())?;
-    // Roda dentro da biblioteca: caminhos relativos (ex.: -o exports) caem nela.
-    let out = std::process::Command::new(exe)
-        .current_dir(&root)
-        .arg("--root")
-        .arg(&root)
-        .arg("--json")
-        .args(args)
-        .output()
-        .map_err(|e| e.to_string())?;
-    let text = String::from_utf8_lossy(&out.stdout).into_owned();
-    let err = String::from_utf8_lossy(&out.stderr).into_owned();
-    let output = serde_json::from_str(&text).unwrap_or(serde_json::Value::String(text + &err));
-    Ok(serde_json::json!({ "ok": out.status.success(), "output": output }))
-}
-
-/// Valor de -o/--out, em qualquer grafia aceita pelo clap.
-fn out_arg(args: &[String]) -> Option<&str> {
-    args.iter().enumerate().find_map(|(i, a)| match a.as_str() {
-        "-o" | "--out" => Some(args.get(i + 1).map_or("", String::as_str)),
-        _ => a
-            .strip_prefix("--out=")
-            .or_else(|| a.strip_prefix("-o").map(|v| v.trim_start_matches('='))),
-    })
-}
-
-/// Caminho relativo sem "..": fica dentro da biblioteca (o comando roda nela).
-fn inside(p: &str) -> bool {
-    use std::path::Component::{CurDir, Normal};
-    !p.is_empty()
-        && Path::new(p)
-            .components()
-            .all(|c| matches!(c, Normal(_) | CurDir))
 }
 
 /// /api/* só com token da sessão; qualquer rota só com Host/Origin locais (contra DNS rebinding).
@@ -277,25 +240,47 @@ fn open_browser(url: &str) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::io::{Read, Write};
 
+    /// Manda um POST direto para `route` e devolve a resposta HTTP crua.
+    fn post(path: &str, body: &str) -> String {
+        let server = Server::http("127.0.0.1:0").unwrap();
+        let addr = server.server_addr().to_ip().unwrap();
+        let t = std::thread::spawn(move || {
+            let mut req = server.recv().unwrap();
+            let res = route(Path::new("."), &mut req).unwrap();
+            req.respond(res).unwrap();
+        });
+        let mut s = std::net::TcpStream::connect(addr).unwrap();
+        write!(
+            s,
+            "POST {path} HTTP/1.1\r\nHost: {addr}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+            body.len()
+        )
+        .unwrap();
+        let mut out = String::new();
+        s.read_to_string(&mut out).unwrap();
+        t.join().unwrap();
+        out
+    }
+
+    /// O menu de comandos saiu da página: a rota não pode voltar sem ninguém perceber.
     #[test]
-    fn out_must_stay_in_library() {
-        let a = |v: &[&str]| v.iter().map(|s| s.to_string()).collect::<Vec<_>>();
-        for ok in [
-            &["export", "--scene", "x"][..],
-            &["export", "-o", "exports/a"],
-            &["export", "--out=./b"],
-        ] {
-            assert!(out_arg(&a(ok)).is_none_or(inside), "{ok:?}");
-        }
-        for bad in [
-            &["export", "-o", "/tmp"][..],
-            &["export", "-o../x"],
-            &["export", "--out=a/../../x"],
-            &["export", "-o"],
-            &["export", "-o=/etc"],
-        ] {
-            assert!(!out_arg(&a(bad)).is_none_or(inside), "{bad:?}");
-        }
+    fn cli_route_is_gone() {
+        let out = post("/api/cli", r#"{"args":["list"]}"#);
+        assert!(out.starts_with("HTTP/1.1 404"), "{out}");
+    }
+
+    /// Só uma análise por vez; o Cancelar marca a que está rodando para ser descartada.
+    #[test]
+    fn one_analysis_at_a_time_and_cancel() {
+        assert!(post("/api/analyze/cancel", "").contains(r#""cancelled":false"#));
+        BUSY.store(true, SeqCst);
+        let out = post("/api/analyze/cena/png", "img");
+        assert!(out.starts_with("HTTP/1.1 409"), "{out}");
+        assert!(post("/api/analyze/cancel", "").contains(r#""cancelled":true"#));
+        assert!(CANCEL.load(SeqCst));
+        BUSY.store(false, SeqCst);
+        CANCEL.store(false, SeqCst);
     }
 }

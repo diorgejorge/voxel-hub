@@ -123,6 +123,7 @@ pub fn analyze(
     scene: &str,
     force: bool,
     opts: &Opts,
+    cancelled: &dyn Fn() -> bool,
 ) -> Result<Value, String> {
     let media = media_type(file_name)?;
     let &(model, price_in, price_out) =
@@ -195,6 +196,13 @@ pub fn analyze(
     let u = &res["usage"];
     let tokens = |k: &str| u[k].as_f64().unwrap_or(0.0);
     let cost = (tokens("input_tokens") * price_in + tokens("output_tokens") * price_out) / 1e6;
+    // Cancelada na página: a análise já foi paga, mas nada é gravado.
+    if cancelled() {
+        return Err(format!(
+            "análise cancelada: resultado descartado (custo US$ {:.4})",
+            cost
+        ));
+    }
     let mut out = apply(root, plan, image, file_name, scene, &dir)?;
     out["model"] = json!(res["model"].as_str().unwrap_or(model));
     out["usage"] = u.clone();

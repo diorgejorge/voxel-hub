@@ -48,7 +48,6 @@
   <button data-p="approve">✅ Aprovar<span id="npend" class="badge" hidden></span><small>revisar assets novos</small></button>
   <button data-p="new">🖼️ Nova cena<small>montar cena a partir de imagem</small></button>
   <button data-p="export">📦 Exportar<small>GLB, VOX ou STL</small></button>
-  <button data-p="cli">⌨️ Avançado<small>rodar comandos do CLI</small></button>
 </nav>
 
 <aside>
@@ -80,15 +79,6 @@
     <p class="muted">GLB: Godot/Blender · VOX: MagicaVoxel · STL: impressão 3D</p>
   </section>
 
-  <section data-panel="cli" hidden>
-    <h2>Comando do CLI</h2>
-    <form id="cli" class="box">
-      <select id="cmd"><option>list</option><option>review</option><option>analyze</option><option>export</option></select>
-      <input id="args" placeholder="argumentos, ex.: --scene demo --format glb">
-      <button id="run">Executar</button>
-    </form>
-    <p class="muted" id="cmdhelp"></p>
-  </section>
 </aside>
 
 <main>
@@ -104,7 +94,6 @@
     <div id="exp" class="row" hidden>
       <button class="b-acc" data-f="glb">⬇ GLB</button><button class="b-acc" data-f="vox">⬇ VOX</button><button class="b-acc" data-f="stl">⬇ STL</button>
     </div>
-    <pre id="out" hidden></pre>
   </footer>
 </main>
 
@@ -181,7 +170,6 @@ function go(p) {
   panel = p;
   $$('nav button').forEach((b) => b.classList.toggle('sel', b.dataset.p === p));
   $$('[data-panel]').forEach((s) => s.hidden = s.dataset.panel !== p);
-  $('#out').hidden = p !== 'cli';
   if (p === 'approve' && (!current || assets[current.id]?.status !== 'pending')) {
     const first = Object.values(assets).find((a) => a.status === 'pending');
     first ? select('assets', first.id) : clear('Nada aguardando aprovação. 🎉');
@@ -265,27 +253,6 @@ $('#analyze').onsubmit = async (e) => {
     await load();
   } catch (err) { st.textContent = '❌ ' + err.message; }
   $('#go').disabled = false; $('#go').textContent = 'Analisar imagem';
-};
-
-// --- avançado: CLI ---
-const HELP = {
-  list: 'Lista assets e cenas. Sem argumentos.',
-  review: 'Ex.: crate-wood-01 approve   ·   crate-wood-01 adjust --comment "mais alto"',
-  analyze: 'Use a tela Nova cena (precisa da imagem).',
-  export: 'Ex.: --scene demo --format glb,stl   ·   --asset barrel-wood-01 --format vox',
-};
-const help = () => $('#cmdhelp').textContent = HELP[$('#cmd').value];
-$('#cmd').onchange = help; help();
-$('#cli').onsubmit = async (e) => {
-  e.preventDefault();
-  const args = [$('#cmd').value, ...($('#args').value.match(/"[^"]*"|\S+/g) || []).map((s) => s.replace(/^"|"$/g, ''))];
-  $('#run').disabled = true; $('#out').hidden = false; $('#out').textContent = '> voxel ' + args.join(' ') + '\n...';
-  try {
-    const r = await api('/api/cli', { method: 'POST', body: JSON.stringify({ args }) });
-    $('#out').textContent = '> voxel ' + args.join(' ') + '\n' + (r.ok ? '' : '❌ ') + JSON.stringify(r.output, null, 2);
-    await load();
-  } catch (err) { $('#out').textContent += '\n❌ ' + err.message; }
-  $('#run').disabled = false;
 };
 
 fit();

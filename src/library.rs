@@ -161,8 +161,12 @@ pub fn review(
             }
             a.rounds += 1;
             a.status = "pending".into();
+            a.approved = None;
         }
-        "discard" => a.status = "discarded".into(),
+        "discard" => {
+            a.status = "discarded".into();
+            a.approved = None;
+        }
         _ => return Err(format!("ação inválida: {action}")),
     }
     a.comment = comment.filter(|c| !c.trim().is_empty());
@@ -330,6 +334,22 @@ mod tests {
         .unwrap();
         assert!(review(&root, "copia", "discard", None).is_err());
         assert!(!asset_dir(&root, "original").exists());
+        fs::remove_dir_all(&root).unwrap();
+    }
+
+    #[test]
+    fn adjust_and_discard_clear_approval_date() {
+        let root = std::env::temp_dir().join(format!("voxel-rev-{}", std::process::id()));
+        let dir = asset_dir(&root, "a");
+        fs::create_dir_all(&dir).unwrap();
+        fs::write(dir.join("asset.json"), r#"{"id":"a","type":"param"}"#).unwrap();
+        for action in ["adjust", "discard"] {
+            assert!(review(&root, "a", "approve", None)
+                .unwrap()
+                .approved
+                .is_some());
+            assert!(review(&root, "a", action, None).unwrap().approved.is_none());
+        }
         fs::remove_dir_all(&root).unwrap();
     }
 
