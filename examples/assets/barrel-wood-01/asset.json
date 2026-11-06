@@ -1,0 +1,12 @@
+{
+  "id": "barrel-wood-01",
+  "type": "param",
+  "piece": "barrel",
+  "params": { "r": 4, "h": 8 },
+  "palette": { "barrel": "#7a5238", "barrelD": "#5f3f2c", "hoop": "#5b5f68" },
+  "tags": ["madeira", "rústico", "prop"],
+  "tintable": ["barrel", "barrelD"],
+  "status": "approved",
+  "rounds": 0,
+  "approved": "2026-11-06"
+}

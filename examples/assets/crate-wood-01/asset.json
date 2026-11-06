@@ -1,0 +1,10 @@
+{
+  "id": "crate-wood-01",
+  "type": "param",
+  "piece": "box",
+  "params": { "w": 6, "h": 5, "d": 6 },
+  "palette": { "box": "#9c7a4f" },
+  "tags": ["madeira", "prop"],
+  "status": "pending",
+  "rounds": 0
+}

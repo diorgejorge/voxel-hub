@@ -1,0 +1,295 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>voxel-hub</title>
+<style>
+  :root { --bg: #16181d; --panel: #1f232b; --line: #2e333d; --text: #e6e8ec; --muted: #9aa1ad; --acc: #58a6ff; --ok: #3fb950; --warn: #d29922; --bad: #f85149; }
+  * { box-sizing: border-box; }
+  body { margin: 0; font: 14px system-ui, sans-serif; background: var(--bg); color: var(--text); display: grid; grid-template-columns: 220px 300px 1fr; height: 100vh; }
+  nav, aside { background: var(--panel); border-right: 1px solid var(--line); overflow: auto; padding: 12px; }
+  nav h1 { font-size: 16px; margin: 4px 8px 16px; }
+  nav button { display: block; width: 100%; text-align: left; margin-bottom: 4px; padding: 10px 12px; background: none; }
+  nav button small { display: block; color: var(--muted); font-size: 11px; margin-top: 2px; }
+  nav button.sel { background: var(--line); box-shadow: inset 3px 0 var(--acc); }
+  .badge { background: var(--warn); color: #000; border-radius: 9px; padding: 0 7px; font-size: 11px; margin-left: 6px; }
+  h2 { font-size: 12px; text-transform: uppercase; color: var(--muted); margin: 8px 0; }
+  .item { padding: 8px; border-radius: 6px; cursor: pointer; display: flex; justify-content: space-between; gap: 8px; }
+  .item:hover, .item.sel { background: var(--line); }
+  .st { font-size: 11px; padding: 1px 6px; border-radius: 9px; border: 1px solid; white-space: nowrap; }
+  .approved { color: var(--ok); } .pending { color: var(--warn); } .discarded { color: var(--bad); }
+  main { display: grid; grid-template-rows: minmax(0, 1fr) auto; min-width: 0; height: 100vh; }
+  #view { width: 100%; height: 100%; display: block; min-height: 0; }
+  footer { padding: 12px; border-top: 1px solid var(--line); display: grid; gap: 10px; }
+  #info { color: var(--muted); }
+  .row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+  button { background: var(--line); color: var(--text); border: 0; padding: 8px 12px; border-radius: 6px; cursor: pointer; font: inherit; }
+  button:hover:not(:disabled) { filter: brightness(1.3); }
+  button:disabled { opacity: .5; cursor: wait; }
+  .big { padding: 12px 18px; font-size: 15px; font-weight: 600; }
+  .b-ok { background: var(--ok); color: #000; } .b-warn { background: var(--warn); color: #000; } .b-bad { background: var(--bad); color: #000; } .b-acc { background: var(--acc); color: #000; }
+  input, select, textarea { background: var(--bg); color: var(--text); border: 1px solid var(--line); border-radius: 6px; padding: 8px; font: inherit; min-width: 0; }
+  textarea { flex: 1 1 240px; min-height: 40px; }
+  .box { display: grid; gap: 8px; }
+  .muted { color: var(--muted); font-size: 12px; white-space: pre-wrap; overflow-wrap: anywhere; }
+  .card { background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 10px; }
+  .warnbox { border-color: var(--warn); }
+  code { background: var(--bg); padding: 1px 4px; border-radius: 4px; }
+  pre { background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 8px; overflow: auto; max-height: 40vh; font-size: 12px; margin: 0; }
+  [hidden] { display: none !important; }
+  @media (max-width: 900px) { body { grid-template-columns: 1fr; grid-template-rows: auto auto 50vh; height: auto; } main { height: 60vh; } nav { display: flex; flex-wrap: wrap; gap: 4px; } nav h1 { width: 100%; } nav button { width: auto; } nav small { display: none !important; } }
+</style>
+</head>
+<body>
+<nav>
+  <h1>🧊 voxel-hub</h1>
+  <button data-p="lib">📚 Biblioteca<small>ver assets e cenas</small></button>
+  <button data-p="approve">✅ Aprovar<span id="npend" class="badge" hidden></span><small>revisar assets novos</small></button>
+  <button data-p="new">🖼️ Nova cena<small>montar cena a partir de imagem</small></button>
+  <button data-p="export">📦 Exportar<small>GLB, VOX ou STL</small></button>
+  <button data-p="cli">⌨️ Avançado<small>rodar comandos do CLI</small></button>
+</nav>
+
+<aside>
+  <section data-panel="lib">
+    <h2>Assets</h2><div id="assets"></div>
+    <h2>Cenas</h2><div id="scenes"></div>
+  </section>
+
+  <section data-panel="approve" hidden>
+    <h2>Aguardando aprovação</h2><div id="pend"></div>
+    <p class="muted">Clique num asset, gire a peça (clique no 3D pausa) e decida embaixo. Cada asset tem até 2 rodadas de ajuste.</p>
+  </section>
+
+  <section data-panel="new" hidden>
+    <h2>Nova cena a partir de imagem</h2>
+    <div id="nokey" class="card warnbox muted" hidden></div>
+    <form id="analyze" class="box">
+      <input type="file" id="img" accept="image/png,image/jpeg,image/webp,image/gif" required>
+      <input id="sname" placeholder="nome da cena (ex.: cabana)" pattern="[a-z0-9-]+" title="só letras minúsculas, números e -" required>
+      <label class="muted">Modelo <select id="model"></select></label>
+      <button class="big b-acc" id="go">Analisar imagem</button>
+      <div id="astatus" class="muted"></div>
+    </form>
+    <p class="muted">O Claude separa os objetos, reaproveita assets da biblioteca e cria os que faltam como pendentes. Depois vá em Aprovar.</p>
+  </section>
+
+  <section data-panel="export" hidden>
+    <h2>O que exportar</h2><div id="expl"></div>
+    <p class="muted">GLB: Godot/Blender · VOX: MagicaVoxel · STL: impressão 3D</p>
+  </section>
+
+  <section data-panel="cli" hidden>
+    <h2>Comando do CLI</h2>
+    <form id="cli" class="box">
+      <select id="cmd"><option>list</option><option>review</option><option>analyze</option><option>export</option></select>
+      <input id="args" placeholder="argumentos, ex.: --scene demo --format glb">
+      <button id="run">Executar</button>
+    </form>
+    <p class="muted" id="cmdhelp"></p>
+  </section>
+</aside>
+
+<main>
+  <canvas id="view"></canvas>
+  <footer>
+    <div id="info">Escolha um item à esquerda.</div>
+    <div id="review" class="row" hidden>
+      <button class="big b-ok" data-a="approve">✅ Aprovar</button>
+      <textarea id="comment" placeholder="O que mudar? (para Ajustar)"></textarea>
+      <button class="big b-warn" data-a="adjust">✏️ Ajustar</button>
+      <button class="big b-bad" data-a="discard">❌ Descartar</button>
+    </div>
+    <div id="exp" class="row" hidden>
+      <button class="b-acc" data-f="glb">⬇ GLB</button><button class="b-acc" data-f="vox">⬇ VOX</button><button class="b-acc" data-f="stl">⬇ STL</button>
+    </div>
+    <pre id="out" hidden></pre>
+  </footer>
+</main>
+
+<script type="importmap">{ "imports": { "three": "/three.module.js" } }</script>
+<script type="module">
+import * as THREE from 'three';
+
+const $ = (s) => document.querySelector(s), $$ = (s) => document.querySelectorAll(s);
+const TOKEN = new URLSearchParams(location.search).get('t') || '';
+const api = async (url, opt = {}) => {
+  const r = await fetch(url, { ...opt, headers: { 'X-Voxel-Token': TOKEN, ...(opt.headers || {}) } });
+  const j = await r.json().catch(() => ({ error: `HTTP ${r.status}` }));
+  if (j.error) throw new Error(j.error);
+  return j;
+};
+let panel = 'lib', current = null, assets = {}, scenes = [];
+
+// --- viewer: mesma luz/câmera dos HTMLs (azimute π/4, elevação 0.62, sombras), girando ---
+const canvas = $('#view');
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+renderer.setPixelRatio(Math.min(devicePixelRatio || 1, 2));
+renderer.shadowMap.enabled = true; renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x16181d);
+const sun = new THREE.DirectionalLight(0xfff0d8, 0.55);
+sun.position.set(28, 55, 18); sun.castShadow = true;
+sun.shadow.mapSize.set(4096, 4096); sun.shadow.bias = -0.0005; sun.shadow.normalBias = 0.04;
+scene.add(new THREE.HemisphereLight(0xcfe3ff, 0x6b5a45, 0.78), sun);
+const cam = new THREE.OrthographicCamera(-1, 1, 1, -1, -1000, 1000);
+const pivot = new THREE.Group();
+scene.add(pivot);
+let extent = 10, spin = true, angle = 0;
+
+function fit() {
+  const w = canvas.clientWidth, h = canvas.clientHeight;
+  renderer.setSize(w, h, false);
+  const a = w / h, e = extent;
+  Object.assign(cam, a > 1 ? { left: -e * a, right: e * a, top: e, bottom: -e } : { left: -e, right: e, top: e / a, bottom: -e / a });
+  cam.updateProjectionMatrix();
+  const el = 0.62, az = Math.PI / 4;
+  cam.position.set(Math.sin(az) * Math.cos(el), Math.sin(el), Math.cos(az) * Math.cos(el)).multiplyScalar(100);
+  cam.lookAt(0, 0, 0);
+}
+addEventListener('resize', fit);
+canvas.addEventListener('pointerdown', () => { spin = !spin; });
+
+function show(m) {
+  pivot.clear();
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(m.pos, 3));
+  g.setAttribute('normal', new THREE.Float32BufferAttribute(m.nor, 3));
+  g.setAttribute('color', new THREE.Float32BufferAttribute(m.col, 3)); // já linear (com AO)
+  g.setIndex(m.idx);
+  g.computeBoundingBox();
+  const b = g.boundingBox, c = b.getCenter(new THREE.Vector3()), s = b.getSize(new THREE.Vector3());
+  g.translate(-c.x, -c.y, -c.z);
+  g.scale(0.5, 0.5, 0.5); // voxels finos (S = 2) → voxels de design
+  extent = Math.max(s.x, s.y, s.z, 8) / 2;
+  Object.assign(sun.shadow.camera, { left: -extent, right: extent, top: extent, bottom: -extent, near: 1, far: 200 });
+  sun.shadow.camera.updateProjectionMatrix();
+  const mesh = new THREE.Mesh(g, new THREE.MeshLambertMaterial({ vertexColors: true }));
+  mesh.castShadow = mesh.receiveShadow = true;
+  pivot.add(mesh);
+  fit();
+}
+
+(function frame() { if (spin) angle += 0.006; pivot.rotation.y = angle; renderer.render(scene, cam); requestAnimationFrame(frame); })();
+
+// --- menu ---
+const LABEL = { approved: 'aprovado', pending: 'pendente', discarded: 'descartado' };
+const row = (k, id, st) => `<div class="item" data-k="${k}" data-id="${id}"><span>${id}</span>${st ? `<span class="st ${st}">${LABEL[st] || st}</span>` : ''}</div>`;
+
+function go(p) {
+  panel = p;
+  $$('nav button').forEach((b) => b.classList.toggle('sel', b.dataset.p === p));
+  $$('[data-panel]').forEach((s) => s.hidden = s.dataset.panel !== p);
+  $('#out').hidden = p !== 'cli';
+  if (p === 'approve' && (!current || assets[current.id]?.status !== 'pending')) {
+    const first = Object.values(assets).find((a) => a.status === 'pending');
+    first ? select('assets', first.id) : clear('Nada aguardando aprovação. 🎉');
+  } else if (current) select(current.kind, current.id);
+  else clear('Escolha um item à esquerda.');
+}
+$$('nav button').forEach((b) => b.onclick = () => go(b.dataset.p));
+
+function clear(msg) { current = null; pivot.clear(); $('#info').textContent = msg; $('#review').hidden = $('#exp').hidden = true; mark(); }
+
+async function load() {
+  const [a, s] = await Promise.all([api('/api/assets'), api('/api/scenes')]);
+  assets = Object.fromEntries(a.map((x) => [x.id, x])); scenes = s;
+  const pend = a.filter((x) => x.status === 'pending');
+  $('#assets').innerHTML = a.map((x) => row('assets', x.id, x.status)).join('') || '<div class="muted">nenhum</div>';
+  $('#scenes').innerHTML = s.map((x) => row('scenes', x)).join('') || '<div class="muted">nenhuma</div>';
+  $('#pend').innerHTML = pend.map((x) => row('assets', x.id, x.status)).join('') || '<div class="muted">nenhum 🎉</div>';
+  $('#expl').innerHTML = s.map((x) => row('scenes', x, '')).join('') + a.filter((x) => x.status === 'approved').map((x) => row('assets', x.id, x.status)).join('');
+  $('#npend').textContent = pend.length; $('#npend').hidden = !pend.length;
+  $$('.item[data-id]').forEach((el) => el.onclick = () => select(el.dataset.k, el.dataset.id));
+  mark();
+}
+
+function mark() { $$('.item').forEach((el) => el.classList.toggle('sel', !!current && el.dataset.id === current.id && el.dataset.k === current.kind)); }
+
+async function select(kind, id) {
+  current = { kind, id };
+  mark();
+  const a = kind === 'assets' ? assets[id] : null;
+  $('#review').hidden = !(a && (panel === 'approve' || a.status === 'pending'));
+  $('#exp').hidden = panel === 'approve';
+  try {
+    const m = await api(`/api/${kind}/${id}/mesh`);
+    show(m);
+    $('#info').textContent = a
+      ? `${id} · ${m.count} voxels · ${LABEL[a.status] || a.status} · ajustes ${a.rounds}/2${a.comment ? ' · último pedido: "' + a.comment + '"' : ''}`
+      : `Cena ${id} · ${m.count} voxels`;
+  } catch (e) { $('#info').textContent = 'Erro: ' + e.message; pivot.clear(); }
+}
+
+$$('[data-a]').forEach((b) => b.onclick = async () => {
+  const action = b.dataset.a, comment = $('#comment').value;
+  if (action === 'adjust' && !comment.trim()) { $('#info').textContent = '✏️ Escreva no campo o que mudar e clique Ajustar de novo.'; $('#comment').focus(); return; }
+  if (action === 'discard' && !confirm(`Descartar ${current.id}?`)) return;
+  try {
+    await api(`/api/assets/${current.id}/review`, { method: 'POST', body: JSON.stringify({ action, comment }) });
+    $('#comment').value = '';
+    await load();
+    if (panel === 'approve') { current = null; go('approve'); } else select(current.kind, current.id);
+  } catch (e) { $('#info').textContent = 'Erro: ' + e.message; }
+});
+
+$$('[data-f]').forEach((b) => b.onclick = () => {
+  if (current) location.href = `/api/${current.kind}/${current.id}/export/${b.dataset.f}?t=${encodeURIComponent(TOKEN)}`;
+});
+
+// --- nova cena ---
+api('/api/config').then((c) => {
+  $('#model').innerHTML = c.models.map((m) => `<option ${m === c.model ? 'selected' : ''}>${m}</option>`).join('');
+  if (!c.key_set) {
+    $('#nokey').hidden = false;
+    $('#nokey').textContent = 'Falta a chave da API do Claude.\nNo Windows, abra o Prompt de Comando e rode:\nsetx ANTHROPIC_API_KEY "sk-..."\nDepois feche e abra o voxel-hub de novo.\n(Dentro do chat do Claude não precisa: ele mesmo lê a imagem.)';
+    $('#go').disabled = true;
+  }
+}).catch(() => { $('#model').innerHTML = '<option>padrão</option>'; });
+
+$('#analyze').onsubmit = async (e) => {
+  e.preventDefault();
+  const file = $('#img').files[0], name = $('#sname').value.trim(), st = $('#astatus');
+  const ext = file.name.split('.').pop().toLowerCase(), model = $('#model').value;
+  $('#go').disabled = true; $('#go').textContent = 'Analisando...';
+  st.textContent = 'Pode levar de segundos a alguns minutos. Não feche a página.';
+  try {
+    const q = new URLSearchParams({ t: TOKEN }); if (model !== 'padrão') q.set('model', model);
+    const r = await api(`/api/analyze/${name}/${ext}?${q}`, { method: 'POST', body: file });
+    st.textContent = `✅ Cena "${r.scene || name}" montada.`
+      + `\nNovos para aprovar: ${r.created_pending.join(', ') || 'nenhum'}`
+      + (r.manual?.length ? `\nFazer à mão: ${r.manual.map((m) => m.name).join(', ')}` : '')
+      + (r.cost_usd != null ? `\nCusto: US$ ${r.cost_usd.toFixed(4)} (${r.model})` : '')
+      + (r.notes ? `\n${r.notes}` : '');
+    await load();
+  } catch (err) { st.textContent = '❌ ' + err.message; }
+  $('#go').disabled = false; $('#go').textContent = 'Analisar imagem';
+};
+
+// --- avançado: CLI ---
+const HELP = {
+  list: 'Lista assets e cenas. Sem argumentos.',
+  review: 'Ex.: crate-wood-01 approve   ·   crate-wood-01 adjust --comment "mais alto"',
+  analyze: 'Use a tela Nova cena (precisa da imagem).',
+  export: 'Ex.: --scene demo --format glb,stl   ·   --asset barrel-wood-01 --format vox',
+};
+const help = () => $('#cmdhelp').textContent = HELP[$('#cmd').value];
+$('#cmd').onchange = help; help();
+$('#cli').onsubmit = async (e) => {
+  e.preventDefault();
+  const args = [$('#cmd').value, ...($('#args').value.match(/"[^"]*"|\S+/g) || []).map((s) => s.replace(/^"|"$/g, ''))];
+  $('#run').disabled = true; $('#out').hidden = false; $('#out').textContent = '> voxel ' + args.join(' ') + '\n...';
+  try {
+    const r = await api('/api/cli', { method: 'POST', body: JSON.stringify({ args }) });
+    $('#out').textContent = '> voxel ' + args.join(' ') + '\n' + (r.ok ? '' : '❌ ') + JSON.stringify(r.output, null, 2);
+    await load();
+  } catch (err) { $('#out').textContent += '\n❌ ' + err.message; }
+  $('#run').disabled = false;
+};
+
+fit();
+load().then(() => go(Object.values(assets).some((a) => a.status === 'pending') ? 'approve' : 'lib'));
+</script>
+</body>
+</html>

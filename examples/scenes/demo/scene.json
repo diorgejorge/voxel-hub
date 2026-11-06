@@ -1,0 +1,7 @@
+{
+  "ground": { "slab": [0, 31, 0, 31], "color": "#6f9a4b" },
+  "instances": [
+    { "asset": "barrel-wood-01", "at": [10, 10], "rot": 0 },
+    { "asset": "barrel-wood-01", "at": [20, 14], "rot": 90, "tint": { "barrel": "#6a4630" } }
+  ]
+}
