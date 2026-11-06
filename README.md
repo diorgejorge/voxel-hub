@@ -17,8 +17,11 @@ A biblioteca (`assets/`, `scenes/`, `exports/`) é local e de cada usuário: fic
 1. Baixe o executável na página **Releases** do GitHub (`voxel-windows.exe`, `voxel-macos` ou `voxel-linux`). Não precisa instalar Rust.
 2. Coloque-o numa pasta sua e dê dois cliques. O navegador abre a página local.
    - No Windows, um executável baixado e não assinado pode mostrar "O Windows protegeu o computador": clique em **Mais informações → Executar assim mesmo**.
-3. Na página: **Biblioteca** (assets e cenas em 3D), **Aprovar** (✅ aprovar, ✏️ ajustar com comentário até 2 vezes, ❌ descartar), **Nova cena** (criar assets a partir de uma imagem) e **Exportar** (GLB, VOX, STL).
-   - Só uma análise de imagem roda por vez. Se você cancelar, a análise já paga termina e o resultado é descartado; nenhuma cena é sobrescrita.
+3. A página tem três partes:
+   - **+ Criar de imagem** (botão no topo, ou arraste a imagem para a página): PNG, JPG, WEBP ou GIF. O Claude analisa e cria os assets novos como *pendentes*.
+   - **Esperando você**: os assets novos, com **Aprovar**, **Sugerir mudança** (com comentário, até 2 vezes) e **Excluir** à vista. Clique no asset para ver em 3D.
+   - **Minha biblioteca**: os aprovados, com busca e as ações **Mudar** e **Excluir** (pede confirmação). Cenas e o download em GLB, VOX ou STL ficam em **Avançado**.
+   - Só uma análise de imagem roda por vez. Se você cancelar, a análise já paga termina e o resultado é descartado; nada é gravado.
 4. **Criar assets a partir de imagem** usa a API do Claude e tem custo por imagem (mostrado após cada análise). Defina a chave uma vez e reabra o programa:
    - Windows: `setx ANTHROPIC_API_KEY "sk-ant-..."`
    - macOS/Linux: `export ANTHROPIC_API_KEY=sk-ant-...` no seu perfil do shell.
