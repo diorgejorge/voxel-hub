@@ -149,6 +149,11 @@ fn run_cli(root: &Path, args: &[String]) -> Result<serde_json::Value, String> {
     {
         return Err("--root não é permitido pelo menu".into());
     }
+    if let Some(o) = out_arg(args).filter(|o| !inside(o)) {
+        return Err(format!(
+            "saída fora da biblioteca: {o} (use uma pasta dentro dela, ex.: exports)"
+        ));
+    }
     let root = std::fs::canonicalize(root).map_err(|e| e.to_string())?;
     let exe = std::env::current_exe().map_err(|e| e.to_string())?;
     // Roda dentro da biblioteca: caminhos relativos (ex.: -o exports) caem nela.
@@ -164,6 +169,25 @@ fn run_cli(root: &Path, args: &[String]) -> Result<serde_json::Value, String> {
     let err = String::from_utf8_lossy(&out.stderr).into_owned();
     let output = serde_json::from_str(&text).unwrap_or(serde_json::Value::String(text + &err));
     Ok(serde_json::json!({ "ok": out.status.success(), "output": output }))
+}
+
+/// Valor de -o/--out, em qualquer grafia aceita pelo clap.
+fn out_arg(args: &[String]) -> Option<&str> {
+    args.iter().enumerate().find_map(|(i, a)| match a.as_str() {
+        "-o" | "--out" => Some(args.get(i + 1).map_or("", String::as_str)),
+        _ => a
+            .strip_prefix("--out=")
+            .or_else(|| a.strip_prefix("-o").map(|v| v.trim_start_matches('='))),
+    })
+}
+
+/// Caminho relativo sem "..": fica dentro da biblioteca (o comando roda nela).
+fn inside(p: &str) -> bool {
+    use std::path::Component::{CurDir, Normal};
+    !p.is_empty()
+        && Path::new(p)
+            .components()
+            .all(|c| matches!(c, Normal(_) | CurDir))
 }
 
 /// /api/* só com token da sessão; qualquer rota só com Host/Origin locais (contra DNS rebinding).
@@ -247,5 +271,31 @@ fn open_browser(url: &str) {
     };
     if r.is_err() {
         println!("Abra no navegador: {url}");
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn out_must_stay_in_library() {
+        let a = |v: &[&str]| v.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+        for ok in [
+            &["export", "--scene", "x"][..],
+            &["export", "-o", "exports/a"],
+            &["export", "--out=./b"],
+        ] {
+            assert!(out_arg(&a(ok)).is_none_or(inside), "{ok:?}");
+        }
+        for bad in [
+            &["export", "-o", "/tmp"][..],
+            &["export", "-o../x"],
+            &["export", "--out=a/../../x"],
+            &["export", "-o"],
+            &["export", "-o=/etc"],
+        ] {
+            assert!(!out_arg(&a(bad)).is_none_or(inside), "{bad:?}");
+        }
     }
 }

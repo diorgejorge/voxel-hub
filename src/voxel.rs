@@ -4,6 +4,10 @@ use std::collections::HashMap;
 /// Cor RGB 0xRRGGBB.
 pub type Rgb = u32;
 
+/// Supersample padrão (igual aos HTMLs): cada voxel de design vira S×S×S voxels finos.
+/// A grade guarda voxels finos; cena 128 de design = 256 finos.
+pub const S: i32 = 2;
+
 #[derive(Default, Clone)]
 pub struct Grid {
     pub vox: HashMap<[i32; 3], Rgb>,
@@ -76,7 +80,8 @@ pub fn hex(s: &str) -> Option<Rgb> {
     u32::from_str_radix(s.trim_start_matches('#'), 16).ok()
 }
 
-/// Malha triangulada: posições em unidades de voxel, cores sRGB 0..1 com AO.
+/// Malha triangulada: posições em voxels finos, cores lineares 0..1 com AO
+/// (como o three.js faz no HTML: hex sRGB → linear, × variação por hash, × AO).
 #[derive(Default)]
 pub struct Mesh {
     pub pos: Vec<f32>,
@@ -118,11 +123,34 @@ fn corner_ao(g: &Grid, p: [i32; 3], n: [i32; 3], corner: [i32; 3]) -> usize {
     }
 }
 
+pub fn srgb_to_linear(c: f32) -> f32 {
+    if c <= 0.04045 {
+        c / 12.92
+    } else {
+        ((c + 0.055) / 1.055).powf(2.4)
+    }
+}
+
+/// Copia cada voxel de design para um bloco S×S×S fino (o `put` do HTML).
+pub fn upscale(g: &Grid) -> Grid {
+    let mut out = Grid::default();
+    for (&[x, y, z], &c) in &g.vox {
+        out.fill(
+            [x * S, y * S, z * S],
+            [x * S + S - 1, y * S + S - 1, z * S + S - 1],
+            c,
+        );
+    }
+    out
+}
+
 /// Só faces expostas, com AO nos cantos (mesma regra do engine JS).
 pub fn mesh(g: &Grid) -> Mesh {
     let mut m = Mesh::default();
     for (p, rgb) in g.sorted() {
-        let rgb = [(rgb >> 16) & 255, (rgb >> 8) & 255, rgb & 255].map(|c| c as f32 / 255.0);
+        let k = (0.93 + 0.07 * crate::gen::hash(p[0], p[1], p[2])) as f32;
+        let rgb = [(rgb >> 16) & 255, (rgb >> 8) & 255, rgb & 255]
+            .map(|c| srgb_to_linear(c as f32 / 255.0) * k);
         for (n, c) in FACES {
             if g.solid(p[0] + n[0], p[1] + n[1], p[2] + n[2]) {
                 continue;

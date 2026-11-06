@@ -122,15 +122,17 @@ const api = async (url, opt = {}) => {
 };
 let panel = 'lib', current = null, assets = {}, scenes = [];
 
-// --- viewer: câmera ortográfica iso (azimute π/4, elevação 30°), girando ---
+// --- viewer: mesma luz/câmera dos HTMLs (azimute π/4, elevação 0.62, sombras), girando ---
 const canvas = $('#view');
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
-renderer.setPixelRatio(devicePixelRatio);
+renderer.setPixelRatio(Math.min(devicePixelRatio || 1, 2));
+renderer.shadowMap.enabled = true; renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x16181d);
-const sun = new THREE.DirectionalLight(0xffffff, 1.4);
-sun.position.set(-1, 2, 1.5);
-scene.add(new THREE.AmbientLight(0xffffff, 1.6), sun);
+const sun = new THREE.DirectionalLight(0xfff0d8, 0.55);
+sun.position.set(28, 55, 18); sun.castShadow = true;
+sun.shadow.mapSize.set(4096, 4096); sun.shadow.bias = -0.0005; sun.shadow.normalBias = 0.04;
+scene.add(new THREE.HemisphereLight(0xcfe3ff, 0x6b5a45, 0.78), sun);
 const cam = new THREE.OrthographicCamera(-1, 1, 1, -1, -1000, 1000);
 const pivot = new THREE.Group();
 scene.add(pivot);
@@ -142,7 +144,7 @@ function fit() {
   const a = w / h, e = extent;
   Object.assign(cam, a > 1 ? { left: -e * a, right: e * a, top: e, bottom: -e } : { left: -e, right: e, top: e / a, bottom: -e / a });
   cam.updateProjectionMatrix();
-  const el = Math.PI / 6, az = Math.PI / 4;
+  const el = 0.62, az = Math.PI / 4;
   cam.position.set(Math.sin(az) * Math.cos(el), Math.sin(el), Math.cos(az) * Math.cos(el)).multiplyScalar(100);
   cam.lookAt(0, 0, 0);
 }
@@ -154,15 +156,18 @@ function show(m) {
   const g = new THREE.BufferGeometry();
   g.setAttribute('position', new THREE.Float32BufferAttribute(m.pos, 3));
   g.setAttribute('normal', new THREE.Float32BufferAttribute(m.nor, 3));
-  const col = new THREE.Float32BufferAttribute(m.col, 3);
-  for (let i = 0; i < col.count; i++) { const c = new THREE.Color().setRGB(col.getX(i), col.getY(i), col.getZ(i), THREE.SRGBColorSpace); col.setXYZ(i, c.r, c.g, c.b); }
-  g.setAttribute('color', col);
+  g.setAttribute('color', new THREE.Float32BufferAttribute(m.col, 3)); // já linear (com AO)
   g.setIndex(m.idx);
   g.computeBoundingBox();
   const b = g.boundingBox, c = b.getCenter(new THREE.Vector3()), s = b.getSize(new THREE.Vector3());
   g.translate(-c.x, -c.y, -c.z);
-  extent = Math.max(s.x, s.y, s.z, 4);
-  pivot.add(new THREE.Mesh(g, new THREE.MeshLambertMaterial({ vertexColors: true })));
+  g.scale(0.5, 0.5, 0.5); // voxels finos (S = 2) → voxels de design
+  extent = Math.max(s.x, s.y, s.z, 8) / 2;
+  Object.assign(sun.shadow.camera, { left: -extent, right: extent, top: extent, bottom: -extent, near: 1, far: 200 });
+  sun.shadow.camera.updateProjectionMatrix();
+  const mesh = new THREE.Mesh(g, new THREE.MeshLambertMaterial({ vertexColors: true }));
+  mesh.castShadow = mesh.receiveShadow = true;
+  pivot.add(mesh);
   fit();
 }
 

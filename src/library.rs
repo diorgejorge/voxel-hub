@@ -1,18 +1,20 @@
 //! Biblioteca: assets/<id>/asset.json (+ voxels.json se fixo) e scenes/<nome>/scene.json.
+use crate::gen::{self, GroundPal};
 use crate::pieces;
-use crate::voxel::{hex, Grid, Rgb};
+use crate::voxel::{hex, upscale, Grid, Rgb, S};
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 
-/// Topo do chão em y = 3; objetos apoiam em y = 4.
+/// Em voxels finos (padrão dos HTMLs): topo do chão em y = 3; objetos apoiam em y = 4.
 pub const GY: i32 = 4;
 const MISSING: Rgb = 0xff00ff;
 pub const MAX_ROUNDS: u32 = 2;
-/// Grade da cena em x e z (0..GRID).
-pub const GRID: i32 = 64;
+/// Grade da cena em x e z (0..GRID), em voxels de design (GRID × S finos).
+/// 128 de design = 256 finos (limite do .vox): o máximo de detalhe que ainda exporta.
+pub const GRID: i32 = 128;
 
 #[derive(Serialize, Deserialize, Clone)]
 pub struct Asset {
@@ -131,7 +133,9 @@ pub fn asset_grid(
             };
             pieces::build(piece, &a.params, &col)
         }
-        "fixed" => read_json::<Rle>(&asset_dir(root, &a.id).join("voxels.json"))?.decode(),
+        "fixed" => Ok(upscale(
+            &read_json::<Rle>(&asset_dir(root, &a.id).join("voxels.json"))?.decode()?,
+        )),
         k => Err(format!("tipo de asset desconhecido: {k}")),
     }
 }
@@ -188,6 +192,9 @@ pub struct Instance {
     pub at: [i32; 2],
     #[serde(default)]
     pub rot: i32,
+    /// Altura extra em voxels de design (0 = apoiado no chão), para empilhar.
+    #[serde(default)]
+    pub y: i32,
     #[serde(default)]
     pub tint: Option<BTreeMap<String, String>>,
 }
@@ -208,14 +215,24 @@ pub fn list_scenes(root: &Path) -> Vec<String> {
     v
 }
 
-/// Monta a cena: chão (y 0..3) + instâncias apoiadas em GY. Só usa assets aprovados.
+/// Monta a cena em voxels finos: placa de chão padrão (até y = 3) + instâncias em GY + y.
+/// Posições `at`, `y` e `slab` estão em voxels de design. Só usa assets aprovados.
 pub fn scene_grid(root: &Path, name: &str) -> Result<Grid, String> {
     let s: Scene = read_json(&scene_path(root, name))?;
     let mut g = Grid::default();
     if let Some(gr) = &s.ground {
-        let c = gr.color.as_deref().and_then(hex).unwrap_or(0x6f9a4b);
+        let mut pal = GroundPal::standard();
+        if let Some(c) = gr.color.as_deref().and_then(hex) {
+            pal = pal.with_grass(c);
+        }
         let [x0, x1, z0, z1] = gr.slab;
-        g.fill([x0, 0, z0], [x1, GY - 1, z1], c);
+        gen::ground(
+            &mut g,
+            &pal,
+            [x0 * S, z0 * S],
+            [x1 * S + S - 1, z1 * S + S - 1],
+            None,
+        );
     }
     for i in &s.instances {
         if !(0..GRID).contains(&i.at[0]) || !(0..GRID).contains(&i.at[1]) {
@@ -231,11 +248,22 @@ pub fn scene_grid(root: &Path, name: &str) -> Result<Grid, String> {
         if a.status != "approved" {
             return Err(format!("{}: asset não aprovado ({})", a.id, a.status));
         }
-        g.stamp(
+        let mut one = Grid::default();
+        one.stamp(
             &asset_grid(root, &a, i.tint.as_ref())?,
-            [i.at[0], GY, i.at[1]],
+            [i.at[0] * S, GY + i.y * S, i.at[1] * S],
             i.rot,
         );
+        // A peça inteira (não só o apoio) tem de caber na grade.
+        let (mn, mx) = one.bounds();
+        let side = GRID * S;
+        if mn[0] < 0 || mn[2] < 0 || mx[0] >= side || mx[2] >= side || mx[1] >= side {
+            return Err(format!(
+                "{}: em {:?} a peça sai da grade {GRID}x{GRID} (afaste da borda)",
+                i.asset, i.at
+            ));
+        }
+        g.vox.extend(one.vox);
     }
     Ok(g)
 }

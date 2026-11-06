@@ -1,13 +1,15 @@
 //! Exportação: GLB (Godot/Blender, Y up), VOX (MagicaVoxel), STL (impressão, Z up, mm).
 use crate::voxel::{mesh, Grid, Rgb};
-use std::collections::HashMap;
+use std::collections::{hash_map::Entry, BTreeMap, HashMap};
 
 pub const FORMATS: [&str; 3] = ["glb", "vox", "stl"];
 
+/// `voxel_size` é por voxel de design; a grade é fina (S voxels finos por voxel de design).
 pub fn export(g: &Grid, format: &str, voxel_size: f32) -> Result<Vec<u8>, String> {
     if g.vox.is_empty() {
         return Err("nada para exportar (grade vazia)".into());
     }
+    let voxel_size = voxel_size / crate::voxel::S as f32;
     match format {
         "glb" => Ok(glb(g, voxel_size)),
         "vox" => vox(g),
@@ -16,14 +18,6 @@ pub fn export(g: &Grid, format: &str, voxel_size: f32) -> Result<Vec<u8>, String
             "formato desconhecido: {format} (use {})",
             FORMATS.join(", ")
         )),
-    }
-}
-
-fn lin(c: f32) -> f32 {
-    if c <= 0.04045 {
-        c / 12.92
-    } else {
-        ((c + 0.055) / 1.055).powf(2.4)
     }
 }
 
@@ -46,7 +40,7 @@ fn glb(g: &Grid, size: f32) -> Vec<u8> {
         .enumerate()
         .map(|(i, &v)| (v - c[i % 3]) * size)
         .collect();
-    let col: Vec<f32> = m.col.iter().map(|&v| lin(v.min(1.0))).collect();
+    let col: Vec<f32> = m.col.iter().map(|&v| v.min(1.0)).collect();
     let (mut pmin, mut pmax) = ([f32::MAX; 3], [f32::MIN; 3]);
     for (i, &v) in pos.iter().enumerate() {
         pmin[i % 3] = pmin[i % 3].min(v);
@@ -103,24 +97,28 @@ fn glb(g: &Grid, size: f32) -> Vec<u8> {
     out
 }
 
-/// MagicaVoxel .vox: máx 256 por eixo e 255 cores (z para cima no formato).
+/// MagicaVoxel .vox (z para cima no formato). Lado maior que 256 vira vários modelos
+/// de até 256³, posicionados pelo grafo de cena (nTRN/nGRP/nSHP). Paleta: até 255 cores.
 fn vox(g: &Grid) -> Result<Vec<u8>, String> {
     let (mn, mx) = g.bounds();
-    let dim = [mx[0] - mn[0] + 1, mx[1] - mn[1] + 1, mx[2] - mn[2] + 1];
-    if dim.iter().any(|&d| d > 256) {
-        return Err("vox: um lado passa de 256 voxels".into());
-    }
-    let list = g.sorted();
+    let dim = [mx[0] - mn[0] + 1, mx[2] - mn[2] + 1, mx[1] - mn[1] + 1];
     let mut pal: HashMap<Rgb, u8> = HashMap::new();
     let mut colors: Vec<Rgb> = Vec::new();
-    for (_, c) in &list {
-        if !pal.contains_key(c) {
+    // Blocos de 256 em coordenadas do .vox: (x, -z, y).
+    let mut blocks: BTreeMap<[i32; 3], Vec<[u8; 4]>> = BTreeMap::new();
+    for (p, c) in g.sorted() {
+        if let Entry::Vacant(e) = pal.entry(c) {
             if colors.len() == 255 {
                 return Err("vox: mais de 255 cores".into());
             }
-            colors.push(*c);
-            pal.insert(*c, colors.len() as u8);
+            colors.push(c);
+            e.insert(colors.len() as u8);
         }
+        let v = [p[0] - mn[0], mx[2] - p[2], p[1] - mn[1]];
+        blocks
+            .entry(v.map(|a| a / 256))
+            .or_default()
+            .push([v[0] as u8, v[1] as u8, v[2] as u8, pal[&c]]);
     }
     let chunk = |id: &[u8], body: Vec<u8>| -> Vec<u8> {
         let mut v = id.to_vec();
@@ -129,30 +127,60 @@ fn vox(g: &Grid) -> Result<Vec<u8>, String> {
         v.extend(body);
         v
     };
-    let size: Vec<u8> = [dim[0], dim[2], dim[1]]
-        .iter()
-        .flat_map(|v| v.to_le_bytes())
-        .collect();
-    let mut xyzi = (list.len() as u32).to_le_bytes().to_vec();
-    for (p, c) in &list {
-        xyzi.extend([
-            (p[0] - mn[0]) as u8,
-            (mx[2] - p[2]) as u8,
-            (p[1] - mn[1]) as u8,
-            pal[c],
-        ]);
+    let le = |v: &[i32]| -> Vec<u8> { v.iter().flat_map(|x| x.to_le_bytes()).collect() };
+    let dict = |kv: &[(&str, String)]| -> Vec<u8> {
+        let mut v = le(&[kv.len() as i32]);
+        for (k, s) in kv {
+            for t in [k.as_bytes(), s.as_bytes()] {
+                v.extend(le(&[t.len() as i32]));
+                v.extend(t);
+            }
+        }
+        v
+    };
+    let n = blocks.len() as i32;
+    let mut kids = Vec::new();
+    for (b, list) in &blocks {
+        let size: Vec<i32> = (0..3).map(|a| (dim[a] - b[a] * 256).min(256)).collect();
+        kids.extend(chunk(b"SIZE", le(&size)));
+        let mut xyzi = le(&[list.len() as i32]);
+        list.iter().for_each(|v| xyzi.extend(v));
+        kids.extend(chunk(b"XYZI", xyzi));
+    }
+    // Grafo: nTRN 0 → nGRP 1 → (nTRN 2+2k → nSHP 3+2k → modelo k).
+    let mut root = le(&[0]);
+    root.extend(dict(&[]));
+    root.extend(le(&[1, -1, -1, 1]));
+    root.extend(dict(&[]));
+    kids.extend(chunk(b"nTRN", root));
+    let mut grp = le(&[1]);
+    grp.extend(dict(&[]));
+    grp.extend(le(&[n]));
+    grp.extend(le(&(0..n).map(|k| 2 + 2 * k).collect::<Vec<_>>()));
+    kids.extend(chunk(b"nGRP", grp));
+    for (k, b) in blocks.keys().enumerate() {
+        let k = k as i32;
+        // MagicaVoxel posiciona pelo centro do modelo (metade do tamanho, inteira).
+        let t: Vec<String> = (0..3)
+            .map(|a| (b[a] * 256 + (dim[a] - b[a] * 256).min(256) / 2).to_string())
+            .collect();
+        let mut trn = le(&[2 + 2 * k]);
+        trn.extend(dict(&[]));
+        trn.extend(le(&[3 + 2 * k, -1, 0, 1]));
+        trn.extend(dict(&[("_t", t.join(" "))]));
+        kids.extend(chunk(b"nTRN", trn));
+        let mut shp = le(&[3 + 2 * k]);
+        shp.extend(dict(&[]));
+        shp.extend(le(&[1, k]));
+        shp.extend(dict(&[]));
+        kids.extend(chunk(b"nSHP", shp));
     }
     let mut rgba = Vec::with_capacity(1024);
     for i in 0..256 {
         let c = colors.get(i).copied().unwrap_or(0);
         rgba.extend([(c >> 16) as u8, (c >> 8) as u8, c as u8, 255]);
     }
-    let kids = [
-        chunk(b"SIZE", size),
-        chunk(b"XYZI", xyzi),
-        chunk(b"RGBA", rgba),
-    ]
-    .concat();
+    kids.extend(chunk(b"RGBA", rgba));
     let mut out = b"VOX ".to_vec();
     out.extend(150u32.to_le_bytes());
     out.extend(b"MAIN");
@@ -213,6 +241,21 @@ mod tests {
         assert_eq!(&b[..4], b"VOX ");
         let i = b.windows(4).position(|w| w == b"XYZI").unwrap();
         assert_eq!(u32::from_le_bytes(b[i + 12..i + 16].try_into().unwrap()), 8);
+    }
+
+    #[test]
+    fn big_vox_splits_into_models() {
+        let mut g = Grid::default();
+        g.fill([0, 0, 0], [299, 0, 0], 0x8040ff);
+        let b = export(&g, "vox", 1.0).unwrap();
+        let count = |id: &[u8]| b.windows(4).filter(|w| *w == id).count();
+        assert_eq!(count(b"XYZI"), 2);
+        assert_eq!(count(b"nSHP"), 2);
+        let i = b.windows(4).position(|w| w == b"SIZE").unwrap();
+        assert_eq!(
+            u32::from_le_bytes(b[i + 12..i + 16].try_into().unwrap()),
+            256
+        );
     }
 
     #[test]

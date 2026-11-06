@@ -45,10 +45,14 @@ web/index.html             página de aprovação (three.js embutido, funciona o
 
 ### Regras
 
-- Y para cima. Chão ocupa y 0..3; objetos apoiam em y = 4.
+- Padrão dos HTMLs para tudo: cada voxel de design vira 2×2×2 voxels finos (S = 2), cor por hash/rampa e AO por vértice em cor linear. Cena 128×128 de design = 256 finos (máximo do .vox): fidelidade à imagem antes de tamanho.
+- Y para cima. Chão ocupa y 0..3 (finos); objetos apoiam em y = 4. Instância aceita `y` (design) para empilhar.
 - Origem do asset: centro da base. Rotação só em múltiplos de 90°.
 - Cena só aceita assets com `status: "approved"`.
-- Peças disponíveis: `box` (w, h, d), `cyl` (r, h), `ball` (r), `barrel` (r, h).
+- Peças (medidas em voxels de design): `box` (w, h, d), `cyl` (r, h), `ball` (r), `barrel` (r, h),
+  `oak` (Carvalho Antigo), `crag` (Montanha de Pedra), `rockpile` (pilha de rochas:
+  `rocks: [{x, z, r, h, e, dome, lit}]`, `size`). `oak`/`crag`/`rockpile` têm placa de chão; `tile: 0` tira.
+- `crag` é uma `rockpile` de 7 rochas. Conferir com o HTML original: `node tools/compare-html.mjs <html> oak|crag`.
 - `voxels.json` (asset fixo): `{"size": [x, y, z], "palette": ["#hex", ...], "rle": [[qtd, cor], ...]}`,
   ordem x → z → y, cor 0 = vazio, n = palette[n-1].
 

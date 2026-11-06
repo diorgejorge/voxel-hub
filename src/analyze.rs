@@ -1,6 +1,6 @@
 //! Imagem → API do Claude → decomposição em assets + rascunho de scene.json.
 //! Nada é aprovado aqui: assets novos entram como "pending" e passam pela página de aprovação.
-use crate::library::{self as lib, Asset, GY};
+use crate::library::{self as lib, Asset};
 use crate::pieces;
 use base64::Engine;
 use serde::Deserialize;
@@ -63,6 +63,9 @@ struct Obj {
     params: Vec<Kv<f64>>,
     palette: Vec<Kv<String>>,
     tags: Vec<String>,
+    /// Só para rockpile: as rochas da pilha.
+    #[serde(default)]
+    rocks: Vec<Map<String, Value>>,
 }
 
 #[derive(Deserialize)]
@@ -225,6 +228,7 @@ fn apply(
                 .params
                 .iter()
                 .map(|p| (p.key.clone(), json!(p.value)))
+                .chain((!o.rocks.is_empty()).then(|| ("rocks".to_string(), json!(o.rocks))))
                 .collect(),
             palette: o
                 .palette
@@ -251,7 +255,7 @@ fn apply(
             let why = if !known(&i.asset_id) {
                 "asset não existe"
             } else if !(0..lib::GRID).contains(&i.x) || !(0..lib::GRID).contains(&i.z) {
-                "fora da grade 64x64"
+                "fora da grade da cena"
             } else {
                 return true;
             };
@@ -303,26 +307,28 @@ fn system_prompt(library: &[Value]) -> String {
         "Você converte imagens isométricas (pixel art, sprites) em cenas voxel montadas a partir de uma biblioteca de assets.\n\
 A imagem não tem profundidade: você decide o layout 3D.\n\n\
 Regras fixas:\n\
-- Grade da cena 64x64 em x e z (0..63). Y para cima. Chão ocupa y 0..{gy_top}; objetos apoiam em y={GY}.\n\
+- Grade da cena 128x128 em x e z (0..127), altura até 127. Y para cima. Medidas em voxels de design. O chão é uma placa; objetos apoiam sobre ela.\n\
 - Câmera iso: azimute 45°, elevação 30°. Na tela: esquerda = (x mín, z máx), topo = (x mín, z mín), direita = (x máx, z mín), baixo = (x máx, z máx).\n\
 - Origem de cada asset = centro da base. Instância em (x, z) = centro da base na grade. Rotação só 0/90/180/270.\n\
-- Um voxel de design ≈ 1 pixel-bloco da arte; pessoa ≈ 6-8 voxels de altura, casa ≈ 16-24.\n\n\
+- Fidelidade antes de tamanho: use quantos voxels forem precisos para ficar o mais fiel possível à imagem (ocupe a grade). Pessoa ≈ 12-16 voxels de altura, casa ≈ 32-48. Prefira rockpile com várias rochas a uma peça simples quando a imagem tiver rocha.\n\n\
 Processo:\n\
 1. Liste cada tipo de objeto visível.\n\
 2. Para cada um, consulte a biblioteca: match=\"existing\" (use o id), \"variant\" (use o id existente e mude cor via tint na instância) ou \"new\".\n\
 3. Objetos new: escolha uma peça e parâmetros. asset_id em kebab-case, minúsculas, terminando em -01. Se nenhuma peça representar bem, use piece=\"\" (será feito à mão).\n\
 4. Posicione todas as instâncias (uma por objeto visível, inclusive repetidos) sem sobreposição.\n\
 5. Cores em #rrggbb tiradas da imagem.\n\
-Para existing/variant deixe piece, params, palette e tags vazios.\n\n\
+Para existing/variant deixe piece, params, palette, tags e rocks vazios (rocks só em rockpile).\n\n\
 Peças disponíveis (parâmetros em voxels; chaves de cor da paleta):\n\
 - box: w, h, d — cor \"box\"\n\
 - cyl: r, h — cor \"cyl\"\n\
 - ball: r — cor \"ball\"\n\
-- barrel: r, h — cores \"barrel\", \"barrelD\", \"hoop\"\n\n\
+- barrel: r, h — cores \"barrel\", \"barrelD\", \"hoop\"\n\
+- oak: carvalho grande pronto (placa 18x18, copa ~39 de largura e ~37 de altura, com placa de chão própria; tile 0 tira a placa) — sem cores\n\
+- crag: montanha de pedra pronta (~32x32 de base, com placa própria; tile 0 tira a placa) — sem cores\n\
+- rockpile: montanha/rochedo como pilha de rochas; size (lado da placa, padrão 32), tile; em rocks liste cada rocha (x, z dentro da placa, r raio, h altura, e perfil 0.8, dome 1 para pedra arredondada, lit 1 para clarear) — sem cores\n\n\
 Biblioteca atual (JSON):\n{}\n\n\
 Em notes, diga em português o que ficou de fora ou precisa de peça nova.",
         serde_json::to_string(library).unwrap_or_default(),
-        gy_top = GY - 1,
     )
 }
 
@@ -340,12 +346,16 @@ fn schema() -> Value {
                     "name": {"type": "string"},
                     "match": {"type": "string", "enum": ["existing", "variant", "new"]},
                     "asset_id": {"type": "string"},
-                    "piece": {"type": "string", "enum": ["", "box", "cyl", "ball", "barrel"]},
+                    "piece": {"type": "string", "enum": ["", "box", "cyl", "ball", "barrel", "oak", "crag", "rockpile"]},
                     "params": {"type": "array", "items": kv("number")},
                     "palette": {"type": "array", "items": kv("string")},
-                    "tags": {"type": "array", "items": {"type": "string"}}
+                    "tags": {"type": "array", "items": {"type": "string"}},
+                    "rocks": {"type": "array", "items": {"type": "object",
+                        "properties": {"x": {"type": "number"}, "z": {"type": "number"}, "r": {"type": "number"}, "h": {"type": "number"},
+                            "e": {"type": "number"}, "dome": {"type": "integer"}, "lit": {"type": "integer"}},
+                        "required": ["x", "z", "r", "h", "e", "dome", "lit"], "additionalProperties": false}}
                 },
-                "required": ["name", "match", "asset_id", "piece", "params", "palette", "tags"],
+                "required": ["name", "match", "asset_id", "piece", "params", "palette", "tags", "rocks"],
                 "additionalProperties": false
             }},
             "ground": {"type": "object",
@@ -397,7 +407,7 @@ mod tests {
             "instances": [
                 {"asset_id": "crate-01", "x": 5, "z": 6, "rot": 90, "tint": []},
                 {"asset_id": "statue-01", "x": 9, "z": 9, "rot": 0, "tint": []},
-                {"asset_id": "crate-01", "x": 70, "z": 9, "rot": 0, "tint": []}
+                {"asset_id": "crate-01", "x": 200, "z": 9, "rot": 0, "tint": []}
             ],
             "notes": "ok"
         }))

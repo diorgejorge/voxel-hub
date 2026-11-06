@@ -1,6 +1,8 @@
 mod analyze;
 mod export;
+mod gen;
 mod library;
+mod organic;
 mod pieces;
 mod serve;
 mod voxel;
@@ -59,6 +61,11 @@ enum Cmd {
         /// Esforço: low, medium, high (padrão: VOXEL_EFFORT ou low).
         #[arg(long)]
         effort: Option<String>,
+    },
+    /// Voxels brutos de um gerador portado (oak, crag) em coordenadas do HTML, como JSON.
+    Dump {
+        #[arg(value_parser = ["oak", "crag"])]
+        piece: String,
     },
     /// Exporta um asset ou uma cena.
     Export {
@@ -134,6 +141,20 @@ fn run(root: &std::path::Path, cmd: Option<Cmd>, as_json: bool) -> Result<(), St
             println!("{}: {} (rodadas de ajuste: {})", a.id, a.status, a.rounds);
             Ok(())
         }
+        Cmd::Dump { piece } => {
+            let g = if piece == "oak" {
+                organic::oak(true)
+            } else {
+                organic::crag(true)
+            };
+            let v: Vec<[i64; 4]> = g
+                .sorted()
+                .into_iter()
+                .map(|(p, c)| [p[0] as i64, p[1] as i64, p[2] as i64, c as i64])
+                .collect();
+            println!("{}", serde_json::to_string(&v).unwrap_or_default());
+            Ok(())
+        }
         Cmd::Analyze {
             image,
             scene,
@@ -190,18 +211,36 @@ fn run(root: &std::path::Path, cmd: Option<Cmd>, as_json: bool) -> Result<(), St
                     "aviso: voxel de {voxel_mm} mm é menor que 0,8 mm; pode não imprimir bem"
                 );
             }
-            let mut files = vec![];
+            // Um formato com erro não impede os outros.
+            let (mut files, mut errors) = (vec![], vec![]);
             for f in &format {
                 let scale = if f == "stl" { voxel_mm } else { voxel_m };
                 let path = out.join(format!("{name}.{f}"));
-                std::fs::write(&path, export::export(&g, f, scale)?).map_err(|e| e.to_string())?;
-                if !as_json {
-                    println!("{f}: {} ({} voxels)", path.display(), g.vox.len());
+                match export::export(&g, f, scale)
+                    .and_then(|b| std::fs::write(&path, b).map_err(|e| e.to_string()))
+                {
+                    Ok(()) => {
+                        if !as_json {
+                            println!("{f}: {} ({} voxels)", path.display(), g.vox.len());
+                        }
+                        files.push(path.display().to_string());
+                    }
+                    Err(e) => {
+                        if !as_json {
+                            eprintln!("{f}: {e}");
+                        }
+                        errors.push(format!("{f}: {e}"));
+                    }
                 }
-                files.push(path.display().to_string());
+            }
+            if files.is_empty() {
+                return Err(errors.join("; "));
             }
             if as_json {
-                println!("{}", json!({ "files": files, "voxels": g.vox.len() }));
+                println!(
+                    "{}",
+                    json!({ "files": files, "voxels": g.vox.len(), "errors": errors })
+                );
             }
             Ok(())
         }
