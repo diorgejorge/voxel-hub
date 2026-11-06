@@ -1,0 +1,154 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>voxel-hub</title>
+<style>
+  :root { --bg: #16181d; --panel: #1f232b; --line: #2e333d; --text: #e6e8ec; --muted: #9aa1ad; --ok: #3fb950; --warn: #d29922; --bad: #f85149; }
+  * { box-sizing: border-box; }
+  body { margin: 0; font: 14px system-ui, sans-serif; background: var(--bg); color: var(--text); display: grid; grid-template-columns: 280px 1fr; height: 100vh; }
+  aside { background: var(--panel); border-right: 1px solid var(--line); overflow: auto; padding: 12px; }
+  h2 { font-size: 12px; text-transform: uppercase; color: var(--muted); margin: 16px 0 6px; }
+  .item { padding: 8px; border-radius: 6px; cursor: pointer; display: flex; justify-content: space-between; gap: 8px; }
+  .item:hover, .item.sel { background: var(--line); }
+  .st { font-size: 11px; padding: 1px 6px; border-radius: 9px; border: 1px solid; }
+  .approved { color: var(--ok); } .pending { color: var(--warn); } .discarded { color: var(--bad); }
+  main { display: grid; grid-template-rows: minmax(0, 1fr) auto; min-width: 0; height: 100vh; }
+  #view { width: 100%; height: 100%; display: block; min-height: 0; }
+  footer { padding: 12px; border-top: 1px solid var(--line); display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+  button { background: var(--line); color: var(--text); border: 0; padding: 8px 12px; border-radius: 6px; cursor: pointer; font: inherit; }
+  button:hover { filter: brightness(1.3); }
+  textarea { flex: 1 1 240px; background: var(--bg); color: var(--text); border: 1px solid var(--line); border-radius: 6px; padding: 6px; font: inherit; min-height: 36px; }
+  #info { color: var(--muted); width: 100%; }
+  .sep { flex: 1; }
+  @media (max-width: 700px) { body { grid-template-columns: 1fr; grid-template-rows: 40vh 1fr; } }
+</style>
+</head>
+<body>
+<aside>
+  <h2>Assets</h2><div id="assets"></div>
+  <h2>Cenas</h2><div id="scenes"></div>
+</aside>
+<main>
+  <canvas id="view"></canvas>
+  <footer>
+    <div id="info">Escolha um asset ou cena à esquerda.</div>
+    <span id="review" hidden style="display:contents">
+      <button data-a="approve">✅ Aprovar</button>
+      <textarea id="comment" placeholder="Comentário do ajuste"></textarea>
+      <button data-a="adjust">✏️ Ajustar</button>
+      <button data-a="discard">❌ Descartar</button>
+    </span>
+    <span class="sep"></span>
+    <span id="exp" hidden style="display:contents">
+      <button data-f="glb">GLB</button><button data-f="vox">VOX</button><button data-f="stl">STL</button>
+    </span>
+  </footer>
+</main>
+<script type="importmap">{ "imports": { "three": "/three.module.js" } }</script>
+<script type="module">
+import * as THREE from 'three';
+
+const $ = (s) => document.querySelector(s);
+const api = async (url, opt) => { const r = await fetch(url, opt); const j = await r.json(); if (j.error) throw new Error(j.error); return j; };
+let current = null; // { kind: 'assets'|'scenes', id }
+
+// --- viewer: câmera ortográfica iso (azimute π/4, elevação 30°), girando ---
+const canvas = $('#view');
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+renderer.setPixelRatio(devicePixelRatio);
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x16181d);
+const sun = new THREE.DirectionalLight(0xffffff, 1.4);
+sun.position.set(-1, 2, 1.5);
+scene.add(new THREE.AmbientLight(0xffffff, 1.6), sun);
+const cam = new THREE.OrthographicCamera(-1, 1, 1, -1, -1000, 1000);
+const pivot = new THREE.Group();
+scene.add(pivot);
+let extent = 10, spin = true, angle = 0;
+
+function fit() {
+  const w = canvas.clientWidth, h = canvas.clientHeight;
+  renderer.setSize(w, h, false);
+  const a = w / h, e = extent;
+  Object.assign(cam, a > 1 ? { left: -e * a, right: e * a, top: e, bottom: -e } : { left: -e, right: e, top: e / a, bottom: -e / a });
+  cam.updateProjectionMatrix();
+  const el = Math.PI / 6, az = Math.PI / 4;
+  cam.position.set(Math.sin(az) * Math.cos(el), Math.sin(el), Math.cos(az) * Math.cos(el)).multiplyScalar(100);
+  cam.lookAt(0, 0, 0);
+}
+addEventListener('resize', fit);
+canvas.addEventListener('pointerdown', () => { spin = !spin; });
+
+function show(m) {
+  pivot.clear();
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(m.pos, 3));
+  g.setAttribute('normal', new THREE.Float32BufferAttribute(m.nor, 3));
+  const col = new THREE.Float32BufferAttribute(m.col, 3);
+  for (let i = 0; i < col.count; i++) { const c = new THREE.Color().setRGB(col.getX(i), col.getY(i), col.getZ(i), THREE.SRGBColorSpace); col.setXYZ(i, c.r, c.g, c.b); }
+  g.setAttribute('color', col);
+  g.setIndex(m.idx);
+  g.computeBoundingBox();
+  const b = g.boundingBox, c = b.getCenter(new THREE.Vector3()), s = b.getSize(new THREE.Vector3());
+  g.translate(-c.x, -c.y, -c.z);
+  extent = Math.max(s.x, s.y, s.z, 4);
+  pivot.add(new THREE.Mesh(g, new THREE.MeshLambertMaterial({ vertexColors: true })));
+  fit();
+}
+
+(function frame() { if (spin) angle += 0.006; pivot.rotation.y = angle; renderer.render(scene, cam); requestAnimationFrame(frame); })();
+
+// --- lista e ações ---
+async function load() {
+  const [assets, scenes] = await Promise.all([api('/api/assets'), api('/api/scenes')]);
+  $('#assets').innerHTML = assets.map((a) => `<div class="item" data-k="assets" data-id="${a.id}"><span>${a.id}</span><span class="st ${a.status}">${a.status}</span></div>`).join('') || '<div class="item">nenhum</div>';
+  $('#scenes').innerHTML = scenes.map((s) => `<div class="item" data-k="scenes" data-id="${s}"><span>${s}</span></div>`).join('') || '<div class="item">nenhuma</div>';
+  window.assets = Object.fromEntries(assets.map((a) => [a.id, a]));
+  document.querySelectorAll('.item[data-id]').forEach((el) => el.onclick = () => select(el.dataset.k, el.dataset.id));
+  if (current) mark();
+}
+
+function mark() {
+  document.querySelectorAll('.item').forEach((el) => el.classList.toggle('sel', el.dataset.id === current.id && el.dataset.k === current.kind));
+}
+
+async function select(kind, id) {
+  current = { kind, id };
+  mark();
+  $('#review').hidden = kind !== 'assets';
+  $('#review').style.display = kind === 'assets' ? 'contents' : 'none';
+  $('#exp').style.display = 'contents';
+  try {
+    const m = await api(`/api/${kind}/${id}/mesh`);
+    show(m);
+    const a = kind === 'assets' ? window.assets[id] : null;
+    $('#info').textContent = a
+      ? `${id} · ${a.type}${a.piece ? ' · ' + a.piece : ''} · ${m.count} voxels · ${a.status} · ajustes ${a.rounds}/2${a.comment ? ' · "' + a.comment + '"' : ''}`
+      : `${id} · ${m.count} voxels`;
+  } catch (e) { $('#info').textContent = 'Erro: ' + e.message; pivot.clear(); }
+}
+
+document.querySelectorAll('[data-a]').forEach((b) => b.onclick = async () => {
+  const action = b.dataset.a, comment = $('#comment').value;
+  if (action === 'adjust' && !comment.trim()) { $('#info').textContent = 'Escreva o que ajustar no comentário.'; return; }
+  try {
+    await api(`/api/assets/${current.id}/review`, { method: 'POST', body: JSON.stringify({ action, comment }) });
+    $('#comment').value = '';
+    await load();
+    select(current.kind, current.id);
+  } catch (e) { $('#info').textContent = 'Erro: ' + e.message; }
+});
+
+document.querySelectorAll('[data-f]').forEach((b) => b.onclick = () => {
+  if (current) location.href = `/api/${current.kind}/${current.id}/export/${b.dataset.f}`;
+});
+
+$('#review').style.display = 'none';
+$('#exp').style.display = 'none';
+fit();
+load();
+</script>
+</body>
+</html>
