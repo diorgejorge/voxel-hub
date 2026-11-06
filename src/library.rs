@@ -11,6 +11,8 @@ use std::path::{Path, PathBuf};
 pub const GY: i32 = 4;
 const MISSING: Rgb = 0xff00ff;
 pub const MAX_ROUNDS: u32 = 2;
+/// Grade da cena em x e z (0..GRID).
+pub const GRID: i32 = 64;
 
 #[derive(Serialize, Deserialize, Clone)]
 pub struct Asset {
@@ -208,6 +210,12 @@ pub fn scene_grid(root: &Path, name: &str) -> Result<Grid, String> {
         g.fill([x0, 0, z0], [x1, GY - 1, z1], c);
     }
     for i in &s.instances {
+        if !(0..GRID).contains(&i.at[0]) || !(0..GRID).contains(&i.at[1]) {
+            return Err(format!(
+                "{}: posição {:?} fora da grade {GRID}x{GRID}",
+                i.asset, i.at
+            ));
+        }
         if i.rot % 90 != 0 {
             return Err(format!("{}: rot deve ser múltiplo de 90", i.asset));
         }

@@ -5,14 +5,19 @@ Um único executável para Windows, macOS e Linux.
 
 ## Uso sem terminal
 
-1. Baixe o executável da sua plataforma na aba **Actions** do GitHub (último build verde → Artifacts).
-2. Coloque o `voxel.exe` (ou `voxel`) na pasta do repositório, ao lado de `assets/` e `scenes/`.
-3. Dê dois cliques. O navegador abre com a biblioteca: escolha um asset para vê-lo girando e use
-   ✅ Aprovar, ✏️ Ajustar (com comentário, no máximo 2 rodadas) ou ❌ Descartar. Os botões GLB, VOX e STL baixam o arquivo.
-4. **Nova cena a partir de imagem**: na lateral, escolha a imagem, dê um nome e clique em *Analisar com Claude*.
-   Na primeira vez a página pede sua chave da API do Claude (fica salva em `.voxel/key`, fora do git; cada análise tem custo).
-   Os objetos novos aparecem como *pending* para você aprovar; a cena monta quando todos estiverem aprovados.
+1. Baixe o executável na página **Releases** do GitHub (`voxel-windows.exe`, `voxel-macos` ou `voxel-linux`). Não precisa instalar Rust.
+2. Coloque-o numa pasta sua. A biblioteca (`assets/`, `scenes/`) é criada ao lado dele e é só sua: não vai para o GitHub.
+3. Dê dois cliques. O navegador abre a página com Biblioteca, Aprovar (✅ aprovar, ✏️ ajustar com comentário até 2 vezes, ❌ descartar), Nova cena, Exportar (GLB, VOX, STL) e Avançado (roda comandos do CLI).
+4. **Nova cena a partir de imagem** usa a API do Claude e tem custo por imagem (mostrado após cada análise). Defina a chave uma vez e reabra o programa:
+   - Windows: `setx ANTHROPIC_API_KEY "sk-ant-..."`
+   - macOS/Linux: `export ANTHROPIC_API_KEY=sk-ant-...` no seu perfil do shell.
+   Modelo padrão: `claude-sonnet-5-5` com esforço `low`; troque na página ou com `VOXEL_MODEL` / `VOXEL_EFFORT`.
+   Os objetos novos entram como *pending*; a cena só monta quando todos forem aprovados.
 5. Feche a janela do programa para encerrar.
+
+Exemplos para testar: copie `examples/assets` e `examples/scenes` para a pasta do executável.
+
+Segurança: a página só aceita chamadas com o token aleatório da URL aberta pelo programa e só de `127.0.0.1`/`localhost`.
 
 ## Uso no terminal
 
@@ -20,7 +25,7 @@ Um único executável para Windows, macOS e Linux.
 voxel list
 voxel review crate-wood-01 approve
 voxel review crate-wood-01 adjust -m "mais alto"
-voxel analyze cabana.png --scene cabana      # usa ANTHROPIC_API_KEY ou .voxel/key
+voxel analyze cabana.png --scene cabana --model claude-haiku-5-5   # usa ANTHROPIC_API_KEY
 voxel --json list                            # saída JSON (scripts e Claude)
 voxel export --scene demo --format glb,vox,stl -o exports
 voxel export --asset barrel-wood-01 --format stl --voxel-mm 2

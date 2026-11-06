@@ -1,8 +1,11 @@
 //! Página local: galeria de assets, aprovação e exportação. Só escuta em 127.0.0.1.
+//! Segurança: /api/* exige o token aleatório da sessão (na URL aberta pelo programa)
+//! e Host/Origin locais, para que outros sites abertos no navegador não consigam usar a API.
 use crate::analyze;
 use crate::export::export;
 use crate::library::{self as lib, Asset};
 use crate::voxel::{mesh, Grid};
+use std::hash::{BuildHasher, Hasher};
 use std::path::Path;
 use tiny_http::{Header, Method, Request, Response, Server};
 
@@ -14,14 +17,26 @@ pub fn run(root: &Path, port: u16, open: bool) -> Result<(), String> {
     let server = Server::http(("127.0.0.1", port))
         .or_else(|_| Server::http(("127.0.0.1", 0)))
         .map_err(|e| e.to_string())?;
-    let url = format!("http://{}", server.server_addr());
+    let port = server
+        .server_addr()
+        .to_ip()
+        .map(|a| a.port())
+        .ok_or("endereço inválido")?;
+    let token = new_token();
+    let url = format!("http://127.0.0.1:{port}/?t={token}");
     println!("voxel-hub em {url}  (biblioteca: {})", root.display());
     println!("Feche esta janela para encerrar.");
     if open {
         open_browser(&url);
     }
     for mut req in server.incoming_requests() {
-        let res = route(root, &mut req);
+        let res = match check(&req, port, &token) {
+            Ok(()) => route(root, &mut req),
+            Err(e) => {
+                let _ = req.respond(json(&serde_json::json!({ "error": e })).with_status_code(403));
+                continue;
+            }
+        };
         let _ = match res {
             Ok(r) => req.respond(r),
             Err(e) => req.respond(json(&serde_json::json!({ "error": e })).with_status_code(400)),
@@ -69,17 +84,26 @@ fn route(root: &Path, req: &mut Request) -> Result<Res, String> {
             let a: Asset = lib::review(root, id, action, comment)?;
             Ok(json(&a))
         }
-        (Method::Get, ["api", "key"]) => Ok(json(
-            &serde_json::json!({ "set": analyze::api_key(root).is_some() }),
-        )),
-        (Method::Post, ["api", "key"]) => {
+        (Method::Get, ["api", "config"]) => {
+            let o = analyze::Opts::from_env();
+            Ok(json(&serde_json::json!({
+                "key_set": analyze::api_key().is_some(),
+                "model": o.model, "effort": o.effort, "models": analyze::MODELS.map(|m| m.0),
+            })))
+        }
+        (Method::Post, ["api", "cli"]) => {
             let mut body = String::new();
             req.as_reader()
                 .read_to_string(&mut body)
                 .map_err(|e| e.to_string())?;
             let v: serde_json::Value = serde_json::from_str(&body).map_err(|e| e.to_string())?;
-            analyze::save_key(root, v["key"].as_str().unwrap_or(""))?;
-            Ok(json(&serde_json::json!({ "set": true })))
+            let args: Vec<String> = v["args"]
+                .as_array()
+                .ok_or("args deve ser uma lista")?
+                .iter()
+                .map(|a| a.as_str().unwrap_or("").to_string())
+                .collect();
+            Ok(json(&run_cli(root, &args)?))
         }
         (Method::Post, ["api", "analyze", scene, ext]) => {
             let mut img = Vec::new();
@@ -92,10 +116,83 @@ fn route(root: &Path, req: &mut Request) -> Result<Res, String> {
                 &format!("{scene}.{ext}"),
                 scene,
                 false,
+                &analyze::Opts::from_env().with_model(query(req.url(), "model")),
             )?))
         }
         _ => Ok(Response::from_string("não encontrado").with_status_code(404)),
     }
+}
+
+fn query(url: &str, key: &str) -> Option<String> {
+    let q = url.split_once('?')?.1;
+    q.split('&')
+        .filter_map(|kv| kv.split_once('='))
+        .find(|(k, _)| *k == key)
+        .map(|(_, v)| v.to_string())
+}
+
+/// Comandos que o menu da página pode rodar (nunca "serve").
+const CLI_ALLOWED: [&str; 4] = ["list", "review", "analyze", "export"];
+
+/// Roda o próprio executável com --json, sem shell (argumentos vão direto, sem interpretação).
+fn run_cli(root: &Path, args: &[String]) -> Result<serde_json::Value, String> {
+    let cmd = args.first().ok_or("informe um comando")?;
+    if !CLI_ALLOWED.contains(&cmd.as_str()) {
+        return Err(format!(
+            "comando não permitido: {cmd} (use {})",
+            CLI_ALLOWED.join(", ")
+        ));
+    }
+    let exe = std::env::current_exe().map_err(|e| e.to_string())?;
+    let out = std::process::Command::new(exe)
+        .arg("--root")
+        .arg(root)
+        .arg("--json")
+        .args(args)
+        .output()
+        .map_err(|e| e.to_string())?;
+    let text = String::from_utf8_lossy(&out.stdout).into_owned();
+    let err = String::from_utf8_lossy(&out.stderr).into_owned();
+    let output = serde_json::from_str(&text).unwrap_or(serde_json::Value::String(text + &err));
+    Ok(serde_json::json!({ "ok": out.status.success(), "output": output }))
+}
+
+/// /api/* só com token da sessão; qualquer rota só com Host/Origin locais (contra DNS rebinding).
+fn check(req: &Request, port: u16, token: &str) -> Result<(), String> {
+    let hdr = |name: &'static str| {
+        req.headers()
+            .iter()
+            .find(|h| h.field.equiv(name))
+            .map(|h| h.value.as_str().to_string())
+    };
+    let local = [format!("127.0.0.1:{port}"), format!("localhost:{port}")];
+    if !hdr("Host").is_some_and(|h| local.contains(&h)) {
+        return Err("host não permitido".into());
+    }
+    if let Some(o) = hdr("Origin") {
+        if !local.iter().any(|l| o == format!("http://{l}")) {
+            return Err("origem não permitida".into());
+        }
+    }
+    if req.url().starts_with("/api/") {
+        let q = req.url().split_once('?').map(|(_, q)| q).unwrap_or("");
+        let in_query = q.split('&').any(|kv| kv == format!("t={token}"));
+        if !(in_query || hdr("X-Voxel-Token").as_deref() == Some(token)) {
+            return Err("token inválido; reabra pelo programa".into());
+        }
+    }
+    Ok(())
+}
+
+/// 128 bits do gerador do sistema (RandomState é semeado pelo SO a cada instância).
+fn new_token() -> String {
+    (0..2)
+        .map(|i| {
+            let mut h = std::collections::hash_map::RandomState::new().build_hasher();
+            h.write_u64(i);
+            format!("{:016x}", h.finish())
+        })
+        .collect()
 }
 
 fn grid(root: &Path, kind: &str, id: &str) -> Result<Grid, String> {

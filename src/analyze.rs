@@ -8,7 +8,41 @@ use serde_json::{json, Map, Value};
 use std::fs;
 use std::path::Path;
 
-const MODEL: &str = "claude-opus-5-5";
+/// (modelo, US$ por milhão de tokens de entrada, de saída). Ordem: do mais barato ao mais caro.
+pub const MODELS: [(&str, f64, f64); 3] = [
+    ("claude-haiku-5-5", 0.10, 0.50),
+    ("claude-sonnet-5-5", 2.0, 10.0),
+    ("claude-opus-5-5", 4.0, 20.0),
+];
+const DEFAULT_MODEL: &str = "claude-sonnet-5-5";
+
+/// Modelo e esforço. Padrões trocáveis por VOXEL_MODEL e VOXEL_EFFORT.
+pub struct Opts {
+    pub model: String,
+    pub effort: String,
+}
+
+impl Opts {
+    pub fn from_env() -> Self {
+        let env = |k: &str, d: &str| {
+            std::env::var(k)
+                .ok()
+                .filter(|v| !v.is_empty())
+                .unwrap_or(d.into())
+        };
+        Opts {
+            model: env("VOXEL_MODEL", DEFAULT_MODEL),
+            effort: env("VOXEL_EFFORT", "low"),
+        }
+    }
+
+    pub fn with_model(mut self, m: Option<String>) -> Self {
+        if let Some(m) = m.filter(|m| !m.is_empty()) {
+            self.model = m;
+        }
+        self
+    }
+}
 const API: &str = "https://api.anthropic.com/v1/messages";
 
 #[derive(Deserialize)]
@@ -55,23 +89,12 @@ struct Inst {
     tint: Vec<Kv<String>>,
 }
 
-/// Chave: ANTHROPIC_API_KEY ou o arquivo .voxel/key da biblioteca (salvo pela página).
-pub fn api_key(root: &Path) -> Option<String> {
+/// Chave só pela variável de ambiente (nunca gravada em disco pela ferramenta).
+pub fn api_key() -> Option<String> {
     std::env::var("ANTHROPIC_API_KEY")
         .ok()
-        .or_else(|| fs::read_to_string(key_path(root)).ok())
         .map(|k| k.trim().to_string())
         .filter(|k| !k.is_empty())
-}
-
-pub fn save_key(root: &Path, key: &str) -> Result<(), String> {
-    let p = key_path(root);
-    fs::create_dir_all(p.parent().unwrap()).map_err(|e| e.to_string())?;
-    fs::write(p, key.trim()).map_err(|e| e.to_string())
-}
-
-fn key_path(root: &Path) -> std::path::PathBuf {
-    root.join(".voxel").join("key")
 }
 
 pub fn media_type(file: &str) -> Result<&'static str, String> {
@@ -96,27 +119,35 @@ pub fn analyze(
     file_name: &str,
     scene: &str,
     force: bool,
+    opts: &Opts,
 ) -> Result<Value, String> {
     let media = media_type(file_name)?;
+    let &(model, price_in, price_out) =
+        MODELS.iter().find(|m| m.0 == opts.model).ok_or_else(|| {
+            format!(
+                "modelo desconhecido: {} (use {})",
+                opts.model,
+                MODELS.map(|m| m.0).join(", ")
+            )
+        })?;
     let dir = root.join("scenes").join(scene);
     if dir.join("scene.json").exists() && !force {
         return Err(format!(
             "cena '{scene}' já existe (use outro nome ou --force)"
         ));
     }
-    let key = api_key(root)
-        .ok_or("sem chave da API: defina ANTHROPIC_API_KEY ou salve a chave na página")?;
+    let key = api_key()
+        .ok_or("sem chave da API: defina a variável ANTHROPIC_API_KEY e reabra o programa")?;
     let library: Vec<Value> = lib::list_assets(root)
         .iter()
         .filter(|a| a.status != "discarded")
         .map(|a| json!({"id": a.id, "type": a.kind, "piece": a.piece, "params": a.params, "palette": a.palette, "tags": a.tags, "status": a.status}))
         .collect();
 
-    let body = json!({
-        "model": MODEL,
+    let mut body = json!({
+        "model": model,
         "max_tokens": 16000,
-        "fallbacks": "default",
-        "output_config": {"effort": "high", "format": {"type": "json_schema", "schema": schema()}},
+        "output_config": {"effort": opts.effort, "format": {"type": "json_schema", "schema": schema()}},
         "system": system_prompt(&library),
         "messages": [{"role": "user", "content": [
             {"type": "image", "source": {"type": "base64", "media_type": media,
@@ -125,13 +156,17 @@ pub fn analyze(
         ]}]
     });
     let agent = ureq::AgentBuilder::new().try_proxy_from_env(true).build();
-    let res = agent
+    let mut req = agent
         .post(API)
         .timeout(std::time::Duration::from_secs(600))
         .set("x-api-key", &key)
-        .set("anthropic-version", "2026-10-21")
-        .set("anthropic-beta", "server-side-fallback-2026-07-01")
-        .send_json(body);
+        .set("anthropic-version", "2026-10-21");
+    // Haiku não tem fallback no servidor; Sonnet/Opus caem para outro modelo se houver recusa.
+    if !model.contains("haiku") {
+        body["fallbacks"] = json!("default");
+        req = req.set("anthropic-beta", "server-side-fallback-2026-07-01");
+    }
+    let res = req.send_json(body);
     let res: Value = match res {
         Ok(r) => r.into_json().map_err(|e| e.to_string())?,
         Err(ureq::Error::Status(code, r)) => {
@@ -154,7 +189,14 @@ pub fn analyze(
         .ok_or("resposta sem texto")?;
     let plan: Plan =
         serde_json::from_str(text).map_err(|e| format!("JSON inválido do modelo: {e}"))?;
-    apply(root, plan, image, file_name, scene, &dir, &res["usage"])
+    let u = &res["usage"];
+    let tokens = |k: &str| u[k].as_f64().unwrap_or(0.0);
+    let cost = (tokens("input_tokens") * price_in + tokens("output_tokens") * price_out) / 1e6;
+    let mut out = apply(root, plan, image, file_name, scene, &dir)?;
+    out["model"] = json!(res["model"].as_str().unwrap_or(model));
+    out["usage"] = u.clone();
+    out["cost_usd"] = json!((cost * 10000.0).round() / 10000.0);
+    Ok(out)
 }
 
 fn apply(
@@ -164,7 +206,6 @@ fn apply(
     file_name: &str,
     scene: &str,
     dir: &Path,
-    usage: &Value,
 ) -> Result<Value, String> {
     let existing: Vec<String> = lib::list_assets(root).into_iter().map(|a| a.id).collect();
     let (mut created, mut manual) = (vec![], vec![]);
@@ -202,10 +243,21 @@ fn apply(
         created.push(a.id);
     }
     let known = |id: &String| existing.contains(id) || created.contains(id);
+    let mut dropped = vec![];
     let instances: Vec<Value> = plan
         .instances
         .iter()
-        .filter(|i| known(&i.asset_id))
+        .filter(|i| {
+            let why = if !known(&i.asset_id) {
+                "asset não existe"
+            } else if !(0..lib::GRID).contains(&i.x) || !(0..lib::GRID).contains(&i.z) {
+                "fora da grade 64x64"
+            } else {
+                return true;
+            };
+            dropped.push(json!({"asset_id": i.asset_id, "at": [i.x, i.z], "reason": why}));
+            false
+        })
         .map(|i| {
             let mut v = json!({"asset": i.asset_id, "at": [i.x, i.z], "rot": i.rot.rem_euclid(360) / 90 * 90});
             if !i.tint.is_empty() {
@@ -215,9 +267,10 @@ fn apply(
         })
         .collect();
     let g = &plan.ground;
+    let c = |v: i32| v.clamp(0, lib::GRID - 1);
     let scene_json = json!({
         "source": file_name,
-        "ground": {"slab": [g.x0, g.x1, g.z0, g.z1], "color": g.color},
+        "ground": {"slab": [c(g.x0), c(g.x1), c(g.z0), c(g.z1)], "color": g.color},
         "instances": instances,
     });
     fs::create_dir_all(dir).map_err(|e| e.to_string())?;
@@ -233,9 +286,9 @@ fn apply(
         "objects": plan.objects.iter().map(|o| json!({"name": o.name, "match": o.kind, "asset_id": o.asset_id})).collect::<Vec<_>>(),
         "created_pending": created,
         "manual": manual,
+        "dropped": dropped,
         "instances": instances.len(),
         "notes": plan.notes,
-        "usage": usage,
     }))
 }
 
@@ -343,13 +396,15 @@ mod tests {
             "ground": {"x0": 0, "x1": 31, "z0": 0, "z1": 31, "color": "#6f9a4b"},
             "instances": [
                 {"asset_id": "crate-01", "x": 5, "z": 6, "rot": 90, "tint": []},
-                {"asset_id": "statue-01", "x": 9, "z": 9, "rot": 0, "tint": []}
+                {"asset_id": "statue-01", "x": 9, "z": 9, "rot": 0, "tint": []},
+                {"asset_id": "crate-01", "x": 70, "z": 9, "rot": 0, "tint": []}
             ],
             "notes": "ok"
         }))
         .unwrap();
         let dir = root.join("scenes").join("t");
-        let out = apply(&root, plan, b"img", "x.png", "t", &dir, &Value::Null).unwrap();
+        let out = apply(&root, plan, b"img", "x.png", "t", &dir).unwrap();
+        assert_eq!(out["dropped"].as_array().unwrap().len(), 2);
         assert_eq!(out["created_pending"], json!(["crate-01"]));
         assert_eq!(out["manual"][0]["asset_id"], "statue-01");
         assert_eq!(out["instances"], 1);

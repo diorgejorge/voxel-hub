@@ -53,6 +53,12 @@ enum Cmd {
         /// Sobrescreve a cena se já existir.
         #[arg(long)]
         force: bool,
+        /// Modelo: claude-haiku-5-5, claude-sonnet-5-5 ou claude-opus-5-5 (padrão: VOXEL_MODEL ou sonnet).
+        #[arg(long)]
+        model: Option<String>,
+        /// Esforço: low, medium, high (padrão: VOXEL_EFFORT ou low).
+        #[arg(long)]
+        effort: Option<String>,
     },
     /// Exporta um asset ou uma cena.
     Export {
@@ -132,7 +138,13 @@ fn run(root: &std::path::Path, cmd: Option<Cmd>, as_json: bool) -> Result<(), St
             image,
             scene,
             force,
+            model,
+            effort,
         } => {
+            let mut opts = analyze::Opts::from_env().with_model(model);
+            if let Some(e) = effort {
+                opts.effort = e;
+            }
             let bytes = std::fs::read(&image).map_err(|e| format!("{}: {e}", image.display()))?;
             let name = image
                 .file_name()
@@ -141,7 +153,7 @@ fn run(root: &std::path::Path, cmd: Option<Cmd>, as_json: bool) -> Result<(), St
             if !as_json {
                 println!("Analisando {name} com o Claude (pode levar alguns minutos)...");
             }
-            let out = analyze::analyze(root, &bytes, &name, &scene, force)?;
+            let out = analyze::analyze(root, &bytes, &name, &scene, force, &opts)?;
             if as_json {
                 println!("{out}");
             } else {
@@ -202,9 +214,16 @@ fn default_root() -> PathBuf {
     if cwd.join("assets").is_dir() {
         return cwd;
     }
-    std::env::current_exe()
+    let exe_dir = std::env::current_exe()
         .ok()
-        .and_then(|p| p.parent().map(PathBuf::from))
-        .filter(|d| d.join("assets").is_dir())
-        .unwrap_or(cwd)
+        .and_then(|p| p.parent().map(PathBuf::from));
+    match exe_dir {
+        // Primeiro uso: a biblioteca nasce ao lado do executável (exceto em builds do cargo).
+        Some(d)
+            if d.join("assets").is_dir() || !d.components().any(|c| c.as_os_str() == "target") =>
+        {
+            d
+        }
+        _ => cwd,
+    }
 }
