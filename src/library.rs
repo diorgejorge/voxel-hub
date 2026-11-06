@@ -87,7 +87,15 @@ pub fn asset_dir(root: &Path, id: &str) -> PathBuf {
 }
 
 pub fn load_asset(root: &Path, id: &str) -> Result<Asset, String> {
-    read_json(&asset_dir(root, id).join("asset.json"))
+    let a: Asset = read_json(&asset_dir(root, id).join("asset.json"))?;
+    // Evita gravar em outro asset quando a pasta foi copiada sem trocar o id.
+    if a.id != id {
+        return Err(format!(
+            "assets/{id}/asset.json tem id \"{}\"; o id deve ser igual ao nome da pasta",
+            a.id
+        ));
+    }
+    Ok(a)
 }
 
 pub fn save_asset(root: &Path, a: &Asset) -> Result<(), String> {
@@ -280,6 +288,21 @@ mod tests {
             rle: vec![[3, 0]],
         };
         assert!(r.decode().is_err());
+    }
+
+    #[test]
+    fn copied_folder_with_other_id_is_rejected() {
+        let root = std::env::temp_dir().join(format!("voxel-lib-{}", std::process::id()));
+        let dir = asset_dir(&root, "copia");
+        fs::create_dir_all(&dir).unwrap();
+        fs::write(
+            dir.join("asset.json"),
+            r#"{"id":"original","type":"param"}"#,
+        )
+        .unwrap();
+        assert!(review(&root, "copia", "discard", None).is_err());
+        assert!(!asset_dir(&root, "original").exists());
+        fs::remove_dir_all(&root).unwrap();
     }
 
     #[test]

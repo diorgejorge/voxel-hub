@@ -143,10 +143,19 @@ fn run_cli(root: &Path, args: &[String]) -> Result<serde_json::Value, String> {
             CLI_ALLOWED.join(", ")
         ));
     }
+    if args
+        .iter()
+        .any(|a| a == "--root" || a.starts_with("--root="))
+    {
+        return Err("--root não é permitido pelo menu".into());
+    }
+    let root = std::fs::canonicalize(root).map_err(|e| e.to_string())?;
     let exe = std::env::current_exe().map_err(|e| e.to_string())?;
+    // Roda dentro da biblioteca: caminhos relativos (ex.: -o exports) caem nela.
     let out = std::process::Command::new(exe)
+        .current_dir(&root)
         .arg("--root")
-        .arg(root)
+        .arg(&root)
         .arg("--json")
         .args(args)
         .output()
