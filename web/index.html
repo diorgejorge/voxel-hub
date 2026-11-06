@@ -5,97 +5,196 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>voxel-hub</title>
 <style>
-  :root { --bg: #16181d; --panel: #1f232b; --line: #2e333d; --text: #e6e8ec; --muted: #9aa1ad; --acc: #58a6ff; --ok: #3fb950; --warn: #d29922; --bad: #f85149; }
+  :root { color-scheme: light dark; --bg: #f3eee4; --grid: #00000010; --panel: #fffdf8; --ink: #141414; --text: #141414; --muted: #5b5750; --line: #e2dccf;
+    --yellow: #ffcd29; --blue: #7fb2ff; --lilac: #c4b0f0; --orange: #ff9a3c; --green: #4ccf86; --red: #ff6b5e; --acc: #141414; --on-acc: #fff; --bad: #d92d20; --on-bad: #fff; }
+  @media (prefers-color-scheme: dark) { :root { --bg: #121212; --grid: #ffffff0d; --panel: #1e1e1e; --text: #f3eee4; --muted: #b8b2a7; --line: #333; --acc: #ffcd29; --on-acc: #141414; --bad: #ff6b5e; --on-bad: #141414; } }
   * { box-sizing: border-box; }
-  body { margin: 0; font: 14px system-ui, sans-serif; background: var(--bg); color: var(--text); display: grid; grid-template-columns: 220px 300px 1fr; height: 100vh; }
-  nav, aside { background: var(--panel); border-right: 1px solid var(--line); overflow: auto; padding: 12px; }
-  nav h1 { font-size: 16px; margin: 4px 8px 16px; }
-  nav button { display: block; width: 100%; text-align: left; margin-bottom: 4px; padding: 10px 12px; background: none; }
-  nav button small { display: block; color: var(--muted); font-size: 11px; margin-top: 2px; }
-  nav button.sel { background: var(--line); box-shadow: inset 3px 0 var(--acc); }
-  .badge { background: var(--warn); color: #000; border-radius: 9px; padding: 0 7px; font-size: 11px; margin-left: 6px; }
-  h2 { font-size: 12px; text-transform: uppercase; color: var(--muted); margin: 8px 0; }
-  .item { padding: 8px; border-radius: 6px; cursor: pointer; display: flex; justify-content: space-between; gap: 8px; }
-  .item:hover, .item.sel { background: var(--line); }
-  .st { font-size: 11px; padding: 1px 6px; border-radius: 9px; border: 1px solid; white-space: nowrap; }
-  .approved { color: var(--ok); } .pending { color: var(--warn); } .discarded { color: var(--bad); }
-  main { display: grid; grid-template-rows: minmax(0, 1fr) auto; min-width: 0; height: 100vh; }
-  #view { width: 100%; height: 100%; display: block; min-height: 0; }
-  footer { padding: 12px; border-top: 1px solid var(--line); display: grid; gap: 10px; }
-  #info { color: var(--muted); }
-  .row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
-  button { background: var(--line); color: var(--text); border: 0; padding: 8px 12px; border-radius: 6px; cursor: pointer; font: inherit; }
-  button:hover:not(:disabled) { filter: brightness(1.3); }
-  button:disabled { opacity: .5; cursor: wait; }
-  .big { padding: 12px 18px; font-size: 15px; font-weight: 600; }
-  .b-ok { background: var(--ok); color: #000; } .b-warn { background: var(--warn); color: #000; } .b-bad { background: var(--bad); color: #000; } .b-acc { background: var(--acc); color: #000; }
-  input, select, textarea { background: var(--bg); color: var(--text); border: 1px solid var(--line); border-radius: 6px; padding: 8px; font: inherit; min-width: 0; }
-  textarea { flex: 1 1 240px; min-height: 40px; }
-  .box { display: grid; gap: 8px; }
-  .muted { color: var(--muted); font-size: 12px; white-space: pre-wrap; overflow-wrap: anywhere; }
-  .card { background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 10px; }
-  .warnbox { border-color: var(--warn); }
-  code { background: var(--bg); padding: 1px 4px; border-radius: 4px; }
-  pre { background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 8px; overflow: auto; max-height: 40vh; font-size: 12px; margin: 0; }
+  body { margin: 0; font: 16px/1.45 ui-rounded, "SF Pro Rounded", system-ui, sans-serif; color: var(--text);
+    background: var(--bg); background-image: linear-gradient(var(--grid) 1px, transparent 1px), linear-gradient(90deg, var(--grid) 1px, transparent 1px); background-size: 32px 32px; }
+  .wrap { max-width: 1100px; margin: 0 auto; padding: 20px 16px 120px; }
+  header { display: flex; align-items: center; gap: 12px; padding: 8px 0 20px; }
+  header h1 { font-size: 22px; margin: 0; flex: 1; font-weight: 800; }
+  h2 { font-size: clamp(32px, 5vw, 44px); font-weight: 800; letter-spacing: -1px; margin: 40px 0 4px; }
+  .sub { color: var(--muted); margin: 0 0 16px; }
+  button, .btn { min-height: 44px; padding: 10px 18px; border-radius: 999px; border: 2px solid transparent; background: var(--panel); color: var(--text); font: inherit; font-weight: 600; cursor: pointer; display: inline-flex; align-items: center; gap: 6px; text-decoration: none; transition: transform .12s; }
+  button:hover:not(:disabled) { transform: translateY(-1px); }
+  button:disabled { opacity: .55; cursor: not-allowed; }
+  .primary { background: var(--acc); color: var(--on-acc); }
+  .danger { background: var(--bad); color: var(--on-bad); }
+  .ghost { background: none; }
+  :focus-visible { outline: 3px solid var(--blue); outline-offset: 3px; }
+  input, select, textarea { min-height: 44px; padding: 10px 14px; border-radius: 16px; border: 2px solid var(--line); background: var(--panel); color: var(--text); font: inherit; width: 100%; }
+  .muted { color: var(--muted); font-size: 14px; }
+  .card { background: var(--panel); border-radius: 28px; padding: 20px; }
   [hidden] { display: none !important; }
-  @media (max-width: 900px) { body { grid-template-columns: 1fr; grid-template-rows: auto auto 50vh; height: auto; } main { height: 60vh; } nav { display: flex; flex-wrap: wrap; gap: 4px; } nav h1 { width: 100%; } nav button { width: auto; } nav small { display: none !important; } }
+  #msg:empty { display: none; }
+
+  /* criar: cartão escuro com saudação */
+  #drop { background: #141414; color: #f3eee4; border-radius: 32px; padding: 24px 28px; display: grid; gap: 16px; position: relative; overflow: hidden; outline: 3px dashed transparent; outline-offset: -12px; }
+  #drop.over { outline-color: var(--yellow); }
+  @media (prefers-color-scheme: dark) { #drop { background: #232019; box-shadow: inset 0 0 0 2px #3a352a; } }
+  #drop .hello { font-size: clamp(20px, 2.6vw, 26px); font-weight: 700; line-height: 1.3; margin: 0; max-width: 820px; color: #9b958a; }
+  #drop .hello b { color: #f3eee4; }
+  header { position: sticky; top: 0; z-index: 5; background: color-mix(in srgb, var(--bg) 88%, transparent); backdrop-filter: blur(6px); }
+  #pickBtn { background: var(--yellow); color: #141414; font-size: 16px; padding: 12px 20px; box-shadow: 0 8px 20px #0003; }
+  .balloon { background: var(--c, var(--blue)); color: #141414; border-radius: 22px 22px 22px 6px; padding: 12px 18px; font-weight: 700; width: fit-content; max-width: 100%; margin: 0 0 10px; }
+  /* esperando você */
+  #waiting { margin-top: -8px; box-shadow: 0 14px 30px #0000001a; }
+  #waiting h3 { margin: 0 0 8px; font-size: 20px; font-weight: 800; }
+  .w { display: grid; grid-template-columns: 64px 1fr auto; gap: 14px; align-items: center; padding: 12px 0; border-top: 1px solid var(--line); }
+  .w img { width: 64px; height: 64px; cursor: pointer; filter: drop-shadow(0 6px 6px #0003); }
+  .w .nm { font-weight: 800; cursor: pointer; overflow-wrap: anywhere; }
+  .w .acts { display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
+  .ok { background: var(--bg); }
+  .soft { background: var(--bg); }
+  /* balões (biblioteca) */
+  .balloons { display: grid; padding-top: 4px; }
+  .bl { position: relative; display: grid; grid-template-columns: 76px 1fr auto; gap: 14px; align-items: center; background: var(--c); color: #141414; border-radius: 30px; padding: 16px 20px 26px; margin-top: -14px; box-shadow: 0 10px 22px #0000001f; cursor: pointer; }
+  .bl:first-child { margin-top: 0; }
+  .bl:hover { transform: translateX(4px); }
+  .bl .av { width: 76px; height: 76px; border-radius: 50%; background: #ffffff73; display: grid; place-items: center; }
+  .bl .av img { width: 70px; height: 70px; filter: drop-shadow(0 6px 6px #0004); }
+  .bl .nm { font-weight: 800; font-size: 17px; overflow-wrap: anywhere; }
+  .bl .fala { font-size: 15px; }
+  .tag { display: inline-flex; gap: 4px; align-items: center; font-size: 12px; font-weight: 800; padding: 2px 10px; border-radius: 999px; background: #141414; color: #fff; margin-left: 6px; vertical-align: 2px; }
+  .bl .acts { display: flex; gap: 6px; }
+  .bl .acts { position: relative; }
+  .bl .acts { display: flex; gap: 8px; }
+  .ic { flex-direction: column; gap: 2px; min-width: 64px; min-height: 56px; padding: 6px 12px; border-radius: 18px; background: #ffffffcc; color: #141414; font-size: 12px; font-weight: 700; justify-content: center; }
+  .ic i { font-style: normal; display: block; line-height: 0; animation: bob 2.4s ease-in-out infinite; }
+  .ic:nth-child(2) i { animation-delay: .3s; } .ic:nth-child(3) i { animation-delay: .6s; }
+  .ic:hover, .ic:focus-visible { transform: translateY(-3px) scale(1.06); outline: 3px solid #141414; outline-offset: 2px; }
+  .ic:hover i, .ic:focus-visible i { animation: wig .5s ease-in-out infinite; }
+  .ic.del:hover, .ic.del:focus-visible { background: var(--bad); color: #fff; }
+  .fi { display: inline-grid; place-items: center; width: 32px; height: 32px; border-radius: 10px; flex: none; }
+  .fi-ok { background: #1f9d63; } .fi-ed { background: #2f6fe0; } .fi-del { background: #d92d20; }
+  @keyframes bob { 50% { transform: translateY(-3px); } }
+  @keyframes wig { 25% { transform: rotate(-12deg); } 75% { transform: rotate(12deg); } }
+  @media (prefers-reduced-motion: reduce) { .ic i, .ic:hover i, .ic:focus-visible i { animation: none; } }
+
+  #drop .muted { color: #b8b2a7; }
+  #drop .primary { background: var(--yellow); color: #141414; font-size: 18px; padding: 14px 24px; }
+  #drop button:not(.primary) { background: #2a2a2a; color: #f3eee4; }
+  #drop input { background: #222; color: #f3eee4; border-color: #3a3a3a; }
+  #drop .deco { position: absolute; right: 24px; top: 20px; font-size: 64px; transform: rotate(12deg); filter: drop-shadow(0 6px 8px #0008); pointer-events: none; }
+  #picked { display: grid; grid-template-columns: 140px 1fr; gap: 20px; align-items: start; max-width: 620px; }
+  #picked img { width: 140px; height: 140px; object-fit: contain; border-radius: 20px; background: #222; transform: rotate(-4deg); box-shadow: 0 8px 20px #0007; }
+  #picked .f { display: grid; gap: 10px; }
+  .row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+  .steps { display: flex; gap: 8px; flex-wrap: wrap; margin: 0 0 8px; padding: 0; list-style: none; }
+  .steps li { padding: 6px 14px; border-radius: 999px; background: #2a2a2a; color: #b8b2a7; font-size: 14px; }
+  .steps li.on { background: var(--yellow); color: #141414; font-weight: 700; }
+  .steps li.done { background: var(--green); color: #141414; }
+  .err { color: var(--red); font-weight: 700; }
+
+  .tools { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 22px; align-items: center; }
+  .tools input { flex: 1 1 220px; width: auto; border-radius: 999px; }
+  .empty { text-align: center; padding: 40px 16px; }
+  .empty .ill { font-size: 64px; display: inline-block; transform: rotate(-8deg); }
+
+  /* detalhe */
+  dialog { border: 0; border-radius: 32px; padding: 0; background: var(--panel); color: var(--text); width: min(980px, 96vw); max-height: 94vh; overflow: hidden; }
+  dialog::backdrop { background: #141414b0; }
+  .dlg { display: grid; grid-template-columns: 1fr 320px; min-height: 0; }
+  .dlg canvas { width: 100%; height: min(70vh, 560px); display: block; background: var(--c, var(--yellow)); }
+  .side { padding: 20px; display: grid; gap: 12px; align-content: start; overflow: auto; max-height: 94vh; }
+  .side h3 { margin: 0; font-size: 26px; font-weight: 800; overflow-wrap: anywhere; }
+  .side img { width: 100%; max-height: 160px; object-fit: contain; border-radius: 20px; background: var(--bg); }
+  .side .acts { display: grid; gap: 8px; }
+  .side .acts button:not(.primary):not(.danger) { background: var(--bg); }
+  details summary { cursor: pointer; min-height: 44px; display: flex; align-items: center; color: var(--muted); font-weight: 600; }
+  #confirm { width: min(420px, 92vw); padding: 24px; }
+  #confirm h3 { font-size: 24px; font-weight: 800; }
+  #toast { position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%); background: #141414; color: #f3eee4; padding: 14px 22px; border-radius: 999px; font-weight: 600; box-shadow: 0 10px 30px #0004; }
+  @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+  @media (max-width: 760px) { .dlg { grid-template-columns: 1fr; } .dlg canvas { height: 42vh; } #picked { grid-template-columns: 1fr; } #drop .deco { display: none; } .bl { grid-template-columns: 56px 1fr; } .bl .av, .bl .av img { width: 56px; height: 56px; } .bl { grid-template-columns: 56px 1fr auto; } .w { grid-template-columns: 48px 1fr; } .w img { width: 48px; height: 48px; } .w .acts { grid-column: 1 / -1; justify-content: flex-start; } }
 </style>
 </head>
 <body>
-<nav>
-  <h1>🧊 voxel-hub</h1>
-  <button data-p="lib">📚 Biblioteca<small>ver assets e cenas</small></button>
-  <button data-p="approve">✅ Aprovar<span id="npend" class="badge" hidden></span><small>revisar assets novos</small></button>
-  <button data-p="new">🖼️ Nova cena<small>montar cena a partir de imagem</small></button>
-  <button data-p="export">📦 Exportar<small>GLB, VOX ou STL</small></button>
-</nav>
+<div class="wrap">
+  <header><h1>🧊 voxel-hub</h1><button class="primary" id="pickBtn">+ Criar de imagem</button></header>
 
-<aside>
-  <section data-panel="lib">
-    <h2>Assets</h2><div id="assets"></div>
-    <h2>Cenas</h2><div id="scenes"></div>
-  </section>
-
-  <section data-panel="approve" hidden>
-    <h2>Aguardando aprovação</h2><div id="pend"></div>
-    <p class="muted">Clique num asset, gire a peça (clique no 3D pausa) e decida embaixo. Cada asset tem até 2 rodadas de ajuste.</p>
-  </section>
-
-  <section data-panel="new" hidden>
-    <h2>Nova cena a partir de imagem</h2>
-    <div id="nokey" class="card warnbox muted" hidden></div>
-    <form id="analyze" class="box">
-      <input type="file" id="img" accept="image/png,image/jpeg,image/webp,image/gif" required>
-      <input id="sname" placeholder="nome da cena (ex.: cabana)" pattern="[a-z0-9-]+" title="só letras minúsculas, números e -" required>
-      <label class="muted">Modelo <select id="model"></select></label>
-      <button class="big b-acc" id="go">Analisar imagem</button>
-      <div id="astatus" class="muted"></div>
-    </form>
-    <p class="muted">O Claude separa os objetos, reaproveita assets da biblioteca e cria os que faltam como pendentes. Depois vá em Aprovar.</p>
-  </section>
-
-  <section data-panel="export" hidden>
-    <h2>O que exportar</h2><div id="expl"></div>
-    <p class="muted">GLB: Godot/Blender · VOX: MagicaVoxel · STL: impressão 3D</p>
-  </section>
-
-</aside>
-
-<main>
-  <canvas id="view"></canvas>
-  <footer>
-    <div id="info">Escolha um item à esquerda.</div>
-    <div id="review" class="row" hidden>
-      <button class="big b-ok" data-a="approve">✅ Aprovar</button>
-      <textarea id="comment" placeholder="O que mudar? (para Ajustar)"></textarea>
-      <button class="big b-warn" data-a="adjust">✏️ Ajustar</button>
-      <button class="big b-bad" data-a="discard">❌ Descartar</button>
+  <section class="card" id="drop" aria-label="Criar asset">
+    <span class="deco" aria-hidden="true">🧱</span>
+    <p class="hello" id="hello">Oi! Carregando seus bloquinhos…</p>
+    <div id="pick"><span class="muted">Arraste uma imagem pra cá ou use <b>+ Criar de imagem</b> · PNG, JPG, WEBP ou GIF</span></div>
+    <div id="picked" hidden>
+      <img id="thumb" alt="Imagem escolhida">
+      <div class="f">
+        <label>Nome do asset <input id="sname" pattern="[a-z0-9-]+" title="só letras minúsculas, números e hífen" required></label>
+        <div class="row">
+          <button class="primary" id="go">Criar asset</button>
+          <button id="swap">Trocar imagem</button>
+        </div>
+        <div id="nokey" class="muted err" hidden></div>
+      </div>
     </div>
-    <div id="exp" class="row" hidden>
-      <button class="b-acc" data-f="glb">⬇ GLB</button><button class="b-acc" data-f="vox">⬇ VOX</button><button class="b-acc" data-f="stl">⬇ STL</button>
+    <div id="progress" hidden aria-live="polite">
+      <p class="balloon" id="bal"></p>
+      <ol class="steps"><li>📤 Enviando</li><li>🧐 Claude olhando</li><li>🧱 Empilhando blocos</li><li>🎉 Pronto</li></ol>
+      <div class="row"><span id="ptext" class="muted"></span><button id="cancel">Cancelar</button></div>
     </div>
-  </footer>
-</main>
+    <p id="msg" aria-live="polite"></p>
+    <input type="file" id="img" accept="image/png,image/jpeg,image/webp,image/gif" hidden>
+  </section>
+
+  <section id="waiting" class="card" hidden aria-labelledby="wt">
+    <h3 id="wt">Esperando você <span class="count" id="wcount"></span></h3>
+    <div id="wlist"></div>
+  </section>
+
+  <h2>Minha biblioteca</h2>
+  <p class="sub">Tudo que você já criou. Clique num objeto para ver de pertinho.</p>
+  <div class="tools">
+    <input id="q" type="search" placeholder="Buscar asset" aria-label="Buscar asset">
+  </div>
+  <div id="shelves" class="balloons" role="list"></div>
+  <div id="empty" class="card empty" hidden>
+    <div class="ill">📦</div>
+    <p><b>Nada aprovado ainda…</b><br>Crie um asset ou aprove os que estão esperando você.</p>
+    <button class="primary" onclick="document.querySelector('#pickBtn').click()">+ Criar de imagem</button>
+  </div>
+
+  <details id="adv" style="margin-top:32px">
+    <summary>Avançado: cenas e arquivos 3D</summary>
+    <div class="card" style="display:grid;gap:12px">
+      <label class="muted">Modelo do Claude <select id="model"></select></label>
+      <div><b>Cenas</b><div id="scenes" class="row" style="margin-top:8px"></div></div>
+    </div>
+  </details>
+</div>
+
+<dialog id="detail" aria-labelledby="dname">
+  <div class="dlg">
+    <canvas id="view" aria-label="Visualização 3D (clique para pausar o giro)"></canvas>
+    <div class="side">
+      <div class="row" style="justify-content:space-between"><h3 id="dname"></h3><button class="ghost" id="close" aria-label="Fechar">✕</button></div>
+      <span id="dbadge"></span>
+      <span id="dinfo" class="muted"></span>
+      <img id="dorig" alt="Imagem original" hidden>
+      <div class="acts" id="dacts">
+        <button class="primary" id="bApprove"><span class="fi fi-ok"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="#fff" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg></span> Aprovar</button>
+        <button id="bSuggest"><span class="fi fi-ed"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="#fff" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 20h4L19 9l-4-4L4 16z"/><path d="M13.5 6.5l4 4"/></svg></span> Sugerir mudança</button>
+        <div id="sbox" hidden style="display:grid;gap:8px">
+          <textarea id="comment" rows="3" placeholder="Ex.: mais alto · telhado vermelho · madeira mais escura"></textarea>
+          <span id="rounds" class="muted"></span>
+          <button class="primary" id="bSend">Enviar sugestão</button>
+        </div>
+        <button id="bDelete"><span class="fi fi-del"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="#fff" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 7h16"/><path d="M9 7V4h6v3"/><path d="M6 7l1 13h10l1-13"/><path d="M10 11v6M14 11v6"/></svg></span> Excluir</button>
+      </div>
+      <details><summary>Avançado: baixar arquivo 3D</summary>
+        <div class="row"><button data-x="glb">GLB (Godot/Blender)</button><button data-x="vox">VOX (MagicaVoxel)</button><button data-x="stl">STL (impressão 3D)</button></div>
+      </details>
+    </div>
+  </div>
+</dialog>
+
+<dialog id="confirm" aria-labelledby="ctitle">
+  <h3 id="ctitle" style="margin-top:0"></h3>
+  <p class="muted">Ele sai da biblioteca. Sem ressentimentos 👋</p>
+  <div class="row" style="justify-content:flex-end"><button id="cNo" autofocus>Cancelar</button><button class="danger" id="cYes">Excluir</button></div>
+</dialog>
+<div id="toast" role="status" hidden></div>
 
 <script type="importmap">{ "imports": { "three": "/three.module.js" } }</script>
 <script type="module">
@@ -109,39 +208,17 @@ const api = async (url, opt = {}) => {
   if (j.error) throw new Error(j.error);
   return j;
 };
-let panel = 'lib', current = null, assets = {}, scenes = [];
+const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+const STATUS = { pending: ['⏳', 'Pendente'], approved: ['✔', 'Aprovado'] };
+const badge = (st) => `<span class="badge b-${st}">${STATUS[st]?.[0] || ''} ${STATUS[st]?.[1] || st}</span>`;
+const ICON = { ok: '<span class="fi fi-ok"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="#fff" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg></span>', edit: '<span class="fi fi-ed"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="#fff" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 20h4L19 9l-4-4L4 16z"/><path d="M13.5 6.5l4 4"/></svg></span>', del: '<span class="fi fi-del"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="#fff" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 7h16"/><path d="M9 7V4h6v3"/><path d="M6 7l1 13h10l1-13"/><path d="M10 11v6M14 11v6"/></svg></span>' };
+const COLORS = ['--yellow', '--blue', '--lilac', '--orange', '--green', '--red'];
+const colorOf = (id) => `var(${COLORS[[...id].reduce((h, c) => h + c.charCodeAt(0), 0) % COLORS.length]})`;
+const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
+let assets = [], current = null, origImg = {}, thumbs = {};
 
-// --- viewer: mesma luz/câmera dos HTMLs (azimute π/4, elevação 0.62, sombras), girando ---
-const canvas = $('#view');
-const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
-renderer.setPixelRatio(Math.min(devicePixelRatio || 1, 2));
-renderer.shadowMap.enabled = true; renderer.shadowMap.type = THREE.PCFSoftShadowMap;
-const scene = new THREE.Scene();
-scene.background = new THREE.Color(0x16181d);
-const sun = new THREE.DirectionalLight(0xfff0d8, 0.55);
-sun.position.set(28, 55, 18); sun.castShadow = true;
-sun.shadow.mapSize.set(4096, 4096); sun.shadow.bias = -0.0005; sun.shadow.normalBias = 0.04;
-scene.add(new THREE.HemisphereLight(0xcfe3ff, 0x6b5a45, 0.78), sun);
-const cam = new THREE.OrthographicCamera(-1, 1, 1, -1, -1000, 1000);
-const pivot = new THREE.Group();
-scene.add(pivot);
-let extent = 10, spin = true, angle = 0;
-
-function fit() {
-  const w = canvas.clientWidth, h = canvas.clientHeight;
-  renderer.setSize(w, h, false);
-  const a = w / h, e = extent;
-  Object.assign(cam, a > 1 ? { left: -e * a, right: e * a, top: e, bottom: -e } : { left: -e, right: e, top: e / a, bottom: -e / a });
-  cam.updateProjectionMatrix();
-  const el = 0.62, az = Math.PI / 4;
-  cam.position.set(Math.sin(az) * Math.cos(el), Math.sin(el), Math.cos(az) * Math.cos(el)).multiplyScalar(100);
-  cam.lookAt(0, 0, 0);
-}
-addEventListener('resize', fit);
-canvas.addEventListener('pointerdown', () => { spin = !spin; });
-
-function show(m) {
-  pivot.clear();
+// --- 3D: mesma luz/câmera dos HTMLs (azimute π/4, elevação 0.62, sombras) ---
+function makeGeo(m) {
   const g = new THREE.BufferGeometry();
   g.setAttribute('position', new THREE.Float32BufferAttribute(m.pos, 3));
   g.setAttribute('normal', new THREE.Float32BufferAttribute(m.nor, 3));
@@ -151,112 +228,256 @@ function show(m) {
   const b = g.boundingBox, c = b.getCenter(new THREE.Vector3()), s = b.getSize(new THREE.Vector3());
   g.translate(-c.x, -c.y, -c.z);
   g.scale(0.5, 0.5, 0.5); // voxels finos (S = 2) → voxels de design
-  extent = Math.max(s.x, s.y, s.z, 8) / 2;
-  Object.assign(sun.shadow.camera, { left: -extent, right: extent, top: extent, bottom: -extent, near: 1, far: 200 });
-  sun.shadow.camera.updateProjectionMatrix();
-  const mesh = new THREE.Mesh(g, new THREE.MeshLambertMaterial({ vertexColors: true }));
-  mesh.castShadow = mesh.receiveShadow = true;
-  pivot.add(mesh);
-  fit();
+  return [g, Math.max(s.x, s.y, s.z, 8) * 0.4];
+}
+function meshOf(g) {
+  const m = new THREE.Mesh(g, new THREE.MeshLambertMaterial({ vertexColors: true }));
+  m.castShadow = m.receiveShadow = true;
+  return m;
+}
+function stage() {
+  const scene = new THREE.Scene();
+  const sun = new THREE.DirectionalLight(0xfff0d8, 0.55); sun.position.set(28, 55, 18); sun.castShadow = true;
+  sun.shadow.mapSize.set(2048, 2048); sun.shadow.bias = -0.0005; sun.shadow.normalBias = 0.04;
+  scene.add(new THREE.HemisphereLight(0xcfe3ff, 0x6b5a45, 0.78), sun);
+  const cam = new THREE.OrthographicCamera(-1, 1, 1, -1, -1000, 1000);
+  const el = 0.62, az = Math.PI / 4;
+  cam.position.set(Math.sin(az) * Math.cos(el), Math.sin(el), Math.cos(az) * Math.cos(el)).multiplyScalar(100);
+  cam.lookAt(0, 0, 0);
+  const pivot = new THREE.Group(); scene.add(pivot);
+  return { scene, cam, pivot, sun, extent: 10 };
+}
+function frameCam(st, w, h) {
+  const a = w / h, e = st.extent;
+  Object.assign(st.cam, a > 1 ? { left: -e * a, right: e * a, top: e, bottom: -e } : { left: -e, right: e, top: e / a, bottom: -e / a });
+  st.cam.updateProjectionMatrix();
+  const k = e * 2; // a peça gira: a sombra cobre a diagonal
+  Object.assign(st.sun.shadow.camera, { left: -k, right: k, top: k, bottom: -k, near: -k * 4, far: k * 4 });
+  st.sun.shadow.camera.updateProjectionMatrix();
 }
 
-(function frame() { if (spin) angle += 0.006; pivot.rotation.y = angle; renderer.render(scene, cam); requestAnimationFrame(frame); })();
-
-// --- menu ---
-const LABEL = { approved: 'aprovado', pending: 'pendente', discarded: 'descartado' };
-const row = (k, id, st) => `<div class="item" data-k="${k}" data-id="${id}"><span>${id}</span>${st ? `<span class="st ${st}">${LABEL[st] || st}</span>` : ''}</div>`;
-
-function go(p) {
-  panel = p;
-  $$('nav button').forEach((b) => b.classList.toggle('sel', b.dataset.p === p));
-  $$('[data-panel]').forEach((s) => s.hidden = s.dataset.panel !== p);
-  if (p === 'approve' && (!current || assets[current.id]?.status !== 'pending')) {
-    const first = Object.values(assets).find((a) => a.status === 'pending');
-    first ? select('assets', first.id) : clear('Nada aguardando aprovação. 🎉');
-  } else if (current) select(current.kind, current.id);
-  else clear('Escolha um item à esquerda.');
+// miniaturas: um renderer fora da tela
+const tr = new THREE.WebGLRenderer({ antialias: true, alpha: true, preserveDrawingBuffer: true });
+tr.setClearColor(0x000000, 0);
+tr.setSize(256, 256, false);
+tr.shadowMap.enabled = true; tr.shadowMap.type = THREE.PCFSoftShadowMap;
+const ts = stage();
+async function thumb(id) {
+  if (thumbs[id]) return thumbs[id];
+  const [g, e] = makeGeo(await api(`/api/assets/${id}/mesh`));
+  ts.pivot.clear(); ts.pivot.add(meshOf(g));
+  ts.extent = e; frameCam(ts, 1, 1); tr.render(ts.scene, ts.cam);
+  g.dispose();
+  return thumbs[id] = tr.domElement.toDataURL();
 }
-$$('nav button').forEach((b) => b.onclick = () => go(b.dataset.p));
 
-function clear(msg) { current = null; pivot.clear(); $('#info').textContent = msg; $('#review').hidden = $('#exp').hidden = true; mark(); }
+// visualizador do detalhe
+const canvas = $('#view');
+const vr = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
+vr.setPixelRatio(Math.min(devicePixelRatio || 1, 2));
+vr.shadowMap.enabled = true; vr.shadowMap.type = THREE.PCFSoftShadowMap;
+const vs = stage();
+let spin = !reduce, angle = 0;
+const fitView = () => { vr.setSize(canvas.clientWidth, canvas.clientHeight, false); frameCam(vs, canvas.clientWidth, canvas.clientHeight || 1); };
+addEventListener('resize', fitView);
+canvas.addEventListener('pointerdown', () => { spin = !spin; });
+(function loop() { if ($('#detail').open) { if (spin) angle += 0.006; vs.pivot.rotation.y = angle; vr.render(vs.scene, vs.cam); } requestAnimationFrame(loop); })();
 
+// --- biblioteca ---
 async function load() {
-  const [a, s] = await Promise.all([api('/api/assets'), api('/api/scenes')]);
-  assets = Object.fromEntries(a.map((x) => [x.id, x])); scenes = s;
-  const pend = a.filter((x) => x.status === 'pending');
-  $('#assets').innerHTML = a.map((x) => row('assets', x.id, x.status)).join('') || '<div class="muted">nenhum</div>';
-  $('#scenes').innerHTML = s.map((x) => row('scenes', x)).join('') || '<div class="muted">nenhuma</div>';
-  $('#pend').innerHTML = pend.map((x) => row('assets', x.id, x.status)).join('') || '<div class="muted">nenhum 🎉</div>';
-  $('#expl').innerHTML = s.map((x) => row('scenes', x, '')).join('') + a.filter((x) => x.status === 'approved').map((x) => row('assets', x.id, x.status)).join('');
-  $('#npend').textContent = pend.length; $('#npend').hidden = !pend.length;
-  $$('.item[data-id]').forEach((el) => el.onclick = () => select(el.dataset.k, el.dataset.id));
-  mark();
+  assets = (await api('/api/assets')).filter((a) => a.status !== 'discarded');
+  render();
+  api('/api/scenes').then((s) => {
+    $('#scenes').innerHTML = s.map((x) => `<button data-scene="${esc(x)}">🏠 ${esc(x)}</button>`).join('') || '<span class="muted">nenhuma</span>';
+    $$('[data-scene]').forEach((b) => b.onclick = () => open('scenes', b.dataset.scene));
+  });
 }
+const FALA_PECA = { barrel: 'Cabe muita coisa aqui. Menos dragões.', box: 'Sou quadrado e tenho orgulho.', house: 'Lar, doce bloquinho.', tree: 'Fotossíntese em 3D.', rock: 'Firme como uma rocha. Literalmente.' };
+const FALA_GERAL = ['Brilho mais que a sua tela.', 'Feito com carinho e cubinhos.', 'Me olha de todos os ângulos.', 'Zero polígonos tortos, prometo.', 'Pronto pra ir pro jogo!'];
+const fala = (a) => esc(FALA_PECA[a.piece] || FALA_GERAL[[...a.id].reduce((h, c) => h + c.charCodeAt(0), 0) % FALA_GERAL.length]);
+function render() {
+  const pend = assets.filter((a) => a.status === 'pending'), appr = assets.filter((a) => a.status === 'approved');
+  // frase do "Hoje" com números reais
+  const pl = (n, um, varios) => `${n} ${n === 1 ? um : varios}`;
+  const names = pend.slice(0, 3).map((a) => `<b>${esc(a.id)}</b>`).join(', ') + (pend.length > 3 ? ` e mais ${pend.length - 3}` : '');
+  $('#hello').innerHTML = !assets.length ? 'Oi! Sua biblioteca está vazia. Me mostra uma imagem que eu transformo em <b>bloquinhos 3D</b>.'
+    : (pend.length ? `Oi! <b>${pl(pend.length, 'asset', 'assets')}</b> ${pend.length === 1 ? 'espera' : 'esperam'} seu sim (${names})` : 'Oi! Nada esperando por você')
+      + `, e <b>${pl(appr.length, 'asset já mora', 'assets já moram')}</b> na biblioteca.`;
+  // esperando você
+  $('#waiting').hidden = !pend.length;
+  $('#wcount').textContent = pend.length;
+  $('#wlist').innerHTML = pend.map((a) => `
+    <div class="w" data-id="${esc(a.id)}">
+      <img alt="Miniatura de ${esc(a.id)}" data-thumb="${esc(a.id)}" data-open>
+      <div><div class="nm" data-open>${esc(a.id)}</div><div class="muted">${a.rounds ? `${a.rounds}ª rodada de ajuste${a.comment ? ` · “${esc(a.comment)}”` : ''}` : 'Novinho, feito pelo Claude'}</div></div>
+      <div class="acts">
+        <button class="ok" data-do="approve">${ICON.ok} Aprovar</button>
+        <button class="soft" data-do="suggest">${ICON.edit} Sugerir mudança</button>
+        <button class="soft" data-do="delete" aria-label="Excluir ${esc(a.id)}">${ICON.del}</button>
+      </div>
+    </div>`).join('');
+  // biblioteca em balões
+  const q = $('#q').value.trim().toLowerCase();
+  const list = appr.filter((a) => (!q || a.id.includes(q) || (a.tags || []).join(' ').toLowerCase().includes(q)));
+  $('#empty').hidden = appr.length > 0;
+  $('#shelves').innerHTML = list.map((a) => `
+    <div class="bl" role="listitem" tabindex="0" style="--c:${colorOf(a.id)}" data-id="${esc(a.id)}" aria-label="${esc(a.id)}, ${STATUS[a.status]?.[1] || a.status}">
+      <span class="av"><img alt="Miniatura de ${esc(a.id)}" data-thumb="${esc(a.id)}"></span>
+      <div><span class="nm">${esc(a.id)}</span>
+        <div class="fala">“${fala(a)}”</div></div>
+      <div class="acts">
+        <button class="ic" data-do="suggest" aria-label="Sugerir mudança em ${esc(a.id)}"><i>${ICON.edit}</i>Mudar</button>
+        <button class="ic del" data-do="delete" aria-label="Excluir ${esc(a.id)}"><i>${ICON.del}</i>Excluir</button>
+      </div>
+    </div>`).join('') || (appr.length ? '<p class="muted">Hmm, nada com esse nome 🤔</p>' : '');
+  $$('[data-thumb]').forEach(async (img) => { try { img.src = await thumb(img.dataset.thumb); } catch { img.alt = 'Sem miniatura'; } });
+  $$('.w').forEach((w) => {
+    const id = w.dataset.id;
+    w.querySelectorAll('[data-open]').forEach((el) => el.onclick = () => open('assets', id));
+    w.querySelectorAll('[data-do]').forEach((b) => b.onclick = () => {
+      const d = b.dataset.do;
+      d === 'approve' ? review(id, 'approve') : d === 'delete' ? askDelete(id) : open('assets', id, true);
+    });
+  });
+  $$('.bl').forEach((card) => {
+    const id = card.dataset.id;
+    card.onclick = (e) => { if (!e.target.closest('.acts')) open('assets', id); };
+    card.onkeydown = (e) => { if (e.target !== card) return; if (e.key === 'Enter') open('assets', id); if (e.key === 'Delete') askDelete(id); };
+    card.querySelectorAll('[data-do]').forEach((b) => b.onclick = (e) => {
+      e.stopPropagation();
+      const d = b.dataset.do;
+      d === 'delete' ? askDelete(id) : d === 'approve' ? review(id, 'approve') : open('assets', id, d === 'suggest');
+    });
+  });
+}
+$('#q').oninput = render;
 
-function mark() { $$('.item').forEach((el) => el.classList.toggle('sel', !!current && el.dataset.id === current.id && el.dataset.k === current.kind)); }
-
-async function select(kind, id) {
+// --- detalhe ---
+async function open(kind, id, suggest = false) {
   current = { kind, id };
-  mark();
-  const a = kind === 'assets' ? assets[id] : null;
-  $('#review').hidden = !(a && (panel === 'approve' || a.status === 'pending'));
-  $('#exp').hidden = panel === 'approve';
+  const a = kind === 'assets' ? assets.find((x) => x.id === id) : null;
+  $('#dname').textContent = a ? id : `Cena ${id}`;
+  $('#detail').style.setProperty('--c', colorOf(id));
+  $('#dbadge').innerHTML = a ? badge(a.status) : '';
+  $('#dacts').hidden = !a;
+  $('#bApprove').hidden = a?.status !== 'pending';
+  $('#sbox').hidden = !suggest;
+  $('#comment').value = '';
+  $('#dorig').hidden = !origImg[id]; if (origImg[id]) $('#dorig').src = origImg[id];
+  if (a) {
+    const left = 2 - (a.rounds || 0);
+    $('#rounds').textContent = left > 0 ? `Você ainda pode pedir ${left} mudança(s) neste asset.` : 'Limite de 2 mudanças atingido: aprove ou exclua.';
+    $('#bSuggest').disabled = $('#bSend').disabled = left <= 0;
+  }
+  $('#dinfo').textContent = a?.comment ? `Último pedido: "${a.comment}"` : '';
+  $('#detail').showModal();
+  vs.pivot.clear();
   try {
-    const m = await api(`/api/${kind}/${id}/mesh`);
-    show(m);
-    $('#info').textContent = a
-      ? `${id} · ${m.count} voxels · ${LABEL[a.status] || a.status} · ajustes ${a.rounds}/2${a.comment ? ' · último pedido: "' + a.comment + '"' : ''}`
-      : `Cena ${id} · ${m.count} voxels`;
-  } catch (e) { $('#info').textContent = 'Erro: ' + e.message; pivot.clear(); }
+    const [g, e] = makeGeo(await api(`/api/${kind}/${id}/mesh`));
+    vs.pivot.add(meshOf(g));
+    vs.extent = e; fitView();
+  } catch (err) { $('#dinfo').textContent = 'Não consegui abrir o 3D: ' + err.message; }
+  if (suggest) $('#comment').focus();
 }
+$('#close').onclick = () => $('#detail').close();
+$('#bApprove').onclick = () => review(current.id, 'approve');
+$('#bSuggest').onclick = () => { $('#sbox').hidden = false; $('#comment').focus(); };
+$('#bSend').onclick = () => {
+  if (!$('#comment').value.trim()) { $('#comment').focus(); $('#rounds').textContent = 'Escreva o que você quer mudar.'; return; }
+  review(current.id, 'adjust', $('#comment').value);
+};
+$('#bDelete').onclick = () => askDelete(current.id);
+$$('[data-x]').forEach((b) => b.onclick = () => { location.href = `/api/${current.kind}/${current.id}/export/${b.dataset.x}?t=${encodeURIComponent(TOKEN)}`; });
 
-$$('[data-a]').forEach((b) => b.onclick = async () => {
-  const action = b.dataset.a, comment = $('#comment').value;
-  if (action === 'adjust' && !comment.trim()) { $('#info').textContent = '✏️ Escreva no campo o que mudar e clique Ajustar de novo.'; $('#comment').focus(); return; }
-  if (action === 'discard' && !confirm(`Descartar ${current.id}?`)) return;
+async function review(id, action, comment) {
   try {
-    await api(`/api/assets/${current.id}/review`, { method: 'POST', body: JSON.stringify({ action, comment }) });
-    $('#comment').value = '';
+    await api(`/api/assets/${id}/review`, { method: 'POST', body: JSON.stringify({ action, comment }) });
+    delete thumbs[id];
     await load();
-    if (panel === 'approve') { current = null; go('approve'); } else select(current.kind, current.id);
-  } catch (e) { $('#info').textContent = 'Erro: ' + e.message; }
-});
+    toast({ approve: `✨ ${id} aprovado. Ficou lindo!`, adjust: `✏️ Anotado! Vou caprichar no ${id}`, discard: `👋 Tchau, ${id}` }[action]);
+    if ($('#detail').open) action === 'discard' ? $('#detail').close() : open('assets', id);
+  } catch (e) { toast('Não deu certo: ' + e.message); }
+}
+function askDelete(id) {
+  $('#ctitle').textContent = `Excluir "${id}"?`;
+  $('#cYes').onclick = () => { $('#confirm').close(); review(id, 'discard'); };
+  $('#confirm').showModal(); $('#cNo').focus();
+}
+$('#cNo').onclick = () => $('#confirm').close();
+let tt;
+function toast(t) { $('#toast').textContent = t; $('#toast').hidden = false; clearTimeout(tt); tt = setTimeout(() => $('#toast').hidden = true, 5000); }
 
-$$('[data-f]').forEach((b) => b.onclick = () => {
-  if (current) location.href = `/api/${current.kind}/${current.id}/export/${b.dataset.f}?t=${encodeURIComponent(TOKEN)}`;
-});
-
-// --- nova cena ---
+// --- criar asset ---
+let file = null, ctrl = null;
 api('/api/config').then((c) => {
   $('#model').innerHTML = c.models.map((m) => `<option ${m === c.model ? 'selected' : ''}>${m}</option>`).join('');
   if (!c.key_set) {
     $('#nokey').hidden = false;
-    $('#nokey').textContent = 'Falta a chave da API do Claude.\nNo Windows, abra o Prompt de Comando e rode:\nsetx ANTHROPIC_API_KEY "sk-..."\nDepois feche e abra o voxel-hub de novo.\n(Dentro do chat do Claude não precisa: ele mesmo lê a imagem.)';
+    $('#nokey').textContent = 'Falta a chave do Claude. No Windows, abra o Prompt de Comando, rode  setx ANTHROPIC_API_KEY "sua-chave"  e abra o voxel-hub de novo.';
     $('#go').disabled = true;
   }
 }).catch(() => { $('#model').innerHTML = '<option>padrão</option>'; });
 
-$('#analyze').onsubmit = async (e) => {
-  e.preventDefault();
-  const file = $('#img').files[0], name = $('#sname').value.trim(), st = $('#astatus');
+$('#pickBtn').onclick = () => $('#img').click();
+$('#swap').onclick = () => $('#img').click();
+$('#img').onchange = () => $('#img').files[0] && choose($('#img').files[0]);
+const drop = $('#drop');
+['dragenter', 'dragover'].forEach((ev) => drop.addEventListener(ev, (e) => { e.preventDefault(); drop.classList.add('over'); }));
+['dragleave', 'drop'].forEach((ev) => drop.addEventListener(ev, (e) => { e.preventDefault(); drop.classList.remove('over'); }));
+drop.addEventListener('drop', (e) => { const f = e.dataTransfer.files[0]; if (f) choose(f); });
+
+function choose(f) {
+  if (!/^image\/(png|jpeg|webp|gif)$/.test(f.type)) { $('#msg').innerHTML = '<span class="err">Esse arquivo não é uma imagem aceita. Use PNG, JPG, WEBP ou GIF.</span>'; return; }
+  file = f;
+  $('#thumb').src = URL.createObjectURL(f);
+  $('#sname').value = f.name.replace(/\.[^.]+$/, '').toLowerCase().normalize('NFD').replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'asset';
+  $('#pick').hidden = true; $('#picked').hidden = false; $('#msg').textContent = '';
+  $('#drop').scrollIntoView({ behavior: reduce ? 'auto' : 'smooth', block: 'start' }); $('#sname').focus();
+}
+const FALAS = ['Hmm, deixa eu ver essa imagem… 🧐', 'Contando bloquinhos: 1, 2, 3… 🧱', 'Esse telhado vai ficar lindo 🏠', 'Separando as cores da paleta 🎨', 'Quase lá, só alinhando os cantos 📐'];
+let falaT;
+function step(i) { $$('.steps li').forEach((li, k) => li.className = k < i ? 'done' : k === i ? 'on' : ''); }
+
+$('#go').onclick = async () => {
+  const name = $('#sname').value.trim();
+  if (!$('#sname').checkValidity()) { $('#msg').innerHTML = '<span class="err">O nome só pode ter letras minúsculas, números e hífen (ex.: cabana-01).</span>'; $('#sname').focus(); return; }
   const ext = file.name.split('.').pop().toLowerCase(), model = $('#model').value;
-  $('#go').disabled = true; $('#go').textContent = 'Analisando...';
-  st.textContent = 'Pode levar de segundos a alguns minutos. Não feche a página.';
+  ctrl = new AbortController();
+  $('#picked').hidden = true; $('#progress').hidden = false; $('#msg').textContent = '';
+  const t0 = Date.now();
+  step(0);
+  let fi = 0; const fala = () => { $('#bal').textContent = FALAS[fi % FALAS.length]; $('#bal').style.setProperty('--c', `var(${COLORS[fi++ % COLORS.length]})`); };
+  fala(); falaT = setInterval(fala, reduce ? 8000 : 4000);
+  const tick = setInterval(() => {
+    const s = Math.round((Date.now() - t0) / 1000);
+    if (s >= 2) step(1);
+    $('#ptext').textContent = `${s}s · pode levar até alguns minutos`;
+  }, 500);
   try {
     const q = new URLSearchParams({ t: TOKEN }); if (model !== 'padrão') q.set('model', model);
-    const r = await api(`/api/analyze/${name}/${ext}?${q}`, { method: 'POST', body: file });
-    st.textContent = `✅ Cena "${r.scene || name}" montada.`
-      + `\nNovos para aprovar: ${r.created_pending.join(', ') || 'nenhum'}`
-      + (r.manual?.length ? `\nFazer à mão: ${r.manual.map((m) => m.name).join(', ')}` : '')
-      + (r.cost_usd != null ? `\nCusto: US$ ${r.cost_usd.toFixed(4)} (${r.model})` : '')
-      + (r.notes ? `\n${r.notes}` : '');
+    const r = await api(`/api/analyze/${name}/${ext}?${q}`, { method: 'POST', body: file, signal: ctrl.signal });
+    step(2);
+    (r.created_pending || []).forEach((id) => origImg[id] = $('#thumb').src);
     await load();
-  } catch (err) { st.textContent = '❌ ' + err.message; }
-  $('#go').disabled = false; $('#go').textContent = 'Analisar imagem';
+    step(4);
+    const novos = r.created_pending || [];
+    $('#msg').innerHTML = `🎉 Prontinho! ${novos.length ? `${novos.length} asset(s) novo(s) esperando sua opinião.` : 'Tudo já existia na biblioteca, economizei trabalho 😎'}`
+      + (r.cost_usd != null ? ` <span class="muted">Custo: US$ ${r.cost_usd.toFixed(4)}</span>` : '');
+    if (novos[0]) open('assets', novos[0]);
+  } catch (e) {
+    $('#msg').innerHTML = e.name === 'AbortError' || /cancelada/.test(e.message)
+      ? 'Cancelado. Nada foi gravado na biblioteca.'
+      : `<span class="err">Não consegui criar o asset: ${esc(e.message)}</span> Tente outra imagem ou tente de novo.`;
+    $('#picked').hidden = false;
+  }
+  clearInterval(tick); clearInterval(falaT);
+  $('#progress').hidden = true;
+  if (!$('#picked').hidden) return;
+  $('#pick').hidden = false; file = null; $('#img').value = '';
 };
+$('#cancel').onclick = () => { api('/api/analyze/cancel', { method: 'POST' }).catch(() => {}); ctrl?.abort(); };
 
-fit();
-load().then(() => go(Object.values(assets).some((a) => a.status === 'pending') ? 'approve' : 'lib'));
+load().catch((e) => { $('#msg').innerHTML = `<span class="err">Não consegui ler a biblioteca: ${esc(e.message)}</span>`; });
 </script>
 </body>
 </html>
