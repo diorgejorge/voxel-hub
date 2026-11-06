@@ -174,7 +174,7 @@ fn run(root: &std::path::Path, cmd: Option<Cmd>, as_json: bool) -> Result<(), St
             if !as_json {
                 println!("Analisando {name} com o Claude (pode levar alguns minutos)...");
             }
-            let out = analyze::analyze(root, &bytes, &name, &scene, force, &opts)?;
+            let out = analyze::analyze(root, &bytes, &name, &scene, force, &opts, &|| false)?;
             if as_json {
                 println!("{out}");
             } else {
