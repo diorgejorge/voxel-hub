@@ -9,7 +9,10 @@ Um único executável para Windows, macOS e Linux.
 2. Coloque o `voxel.exe` (ou `voxel`) na pasta do repositório, ao lado de `assets/` e `scenes/`.
 3. Dê dois cliques. O navegador abre com a biblioteca: escolha um asset para vê-lo girando e use
    ✅ Aprovar, ✏️ Ajustar (com comentário, no máximo 2 rodadas) ou ❌ Descartar. Os botões GLB, VOX e STL baixam o arquivo.
-4. Feche a janela do programa para encerrar.
+4. **Nova cena a partir de imagem**: na lateral, escolha a imagem, dê um nome e clique em *Analisar com Claude*.
+   Na primeira vez a página pede sua chave da API do Claude (fica salva em `.voxel/key`, fora do git; cada análise tem custo).
+   Os objetos novos aparecem como *pending* para você aprovar; a cena monta quando todos estiverem aprovados.
+5. Feche a janela do programa para encerrar.
 
 ## Uso no terminal
 
@@ -17,6 +20,8 @@ Um único executável para Windows, macOS e Linux.
 voxel list
 voxel review crate-wood-01 approve
 voxel review crate-wood-01 adjust -m "mais alto"
+voxel analyze cabana.png --scene cabana      # usa ANTHROPIC_API_KEY ou .voxel/key
+voxel --json list                            # saída JSON (scripts e Claude)
 voxel export --scene demo --format glb,vox,stl -o exports
 voxel export --asset barrel-wood-01 --format stl --voxel-mm 2
 voxel serve --port 7878 --no-open

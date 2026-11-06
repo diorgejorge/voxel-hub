@@ -1,3 +1,4 @@
+mod analyze;
 mod export;
 mod library;
 mod pieces;
@@ -5,6 +6,7 @@ mod serve;
 mod voxel;
 
 use clap::{Parser, Subcommand};
+use serde_json::json;
 use std::path::PathBuf;
 
 /// Biblioteca de assets voxel. Sem argumentos (dois cliques) abre a página no navegador.
@@ -14,6 +16,9 @@ struct Cli {
     /// Pasta da biblioteca (com assets/ e scenes/). Padrão: pasta atual ou a do executável.
     #[arg(long, global = true)]
     root: Option<PathBuf>,
+    /// Saída em JSON (para scripts e para o Claude).
+    #[arg(long, global = true)]
+    json: bool,
     #[command(subcommand)]
     cmd: Option<Cmd>,
 }
@@ -39,6 +44,16 @@ enum Cmd {
         #[arg(short, long)]
         message: Option<String>,
     },
+    /// Analisa uma imagem com a API do Claude: cria assets novos (pendentes) e o rascunho de scenes/<cena>/scene.json.
+    Analyze {
+        image: PathBuf,
+        /// Nome da cena a criar.
+        #[arg(long)]
+        scene: String,
+        /// Sobrescreve a cena se já existir.
+        #[arg(long)]
+        force: bool,
+    },
     /// Exporta um asset ou uma cena.
     Export {
         #[arg(long, conflicts_with = "scene", required_unless_present = "scene")]
@@ -63,18 +78,28 @@ enum Cmd {
 fn main() {
     let cli = Cli::parse();
     let root = cli.root.unwrap_or_else(default_root);
-    if let Err(e) = run(&root, cli.cmd) {
-        eprintln!("erro: {e}");
+    let as_json = cli.json;
+    if let Err(e) = run(&root, cli.cmd, as_json) {
+        if as_json {
+            println!("{}", json!({ "error": e }));
+        } else {
+            eprintln!("erro: {e}");
+        }
         std::process::exit(1);
     }
 }
 
-fn run(root: &std::path::Path, cmd: Option<Cmd>) -> Result<(), String> {
+fn run(root: &std::path::Path, cmd: Option<Cmd>, as_json: bool) -> Result<(), String> {
     match cmd.unwrap_or(Cmd::Serve {
         port: 7878,
         no_open: false,
     }) {
         Cmd::Serve { port, no_open } => serve::run(root, port, !no_open),
+        Cmd::List if as_json => {
+            let out = json!({ "assets": library::list_assets(root), "scenes": library::list_scenes(root) });
+            println!("{out}");
+            Ok(())
+        }
         Cmd::List => {
             for a in library::list_assets(root) {
                 println!(
@@ -96,7 +121,35 @@ fn run(root: &std::path::Path, cmd: Option<Cmd>) -> Result<(), String> {
             message,
         } => {
             let a = library::review(root, &id, &action, message)?;
+            if as_json {
+                println!("{}", serde_json::to_string(&a).unwrap_or_default());
+                return Ok(());
+            }
             println!("{}: {} (rodadas de ajuste: {})", a.id, a.status, a.rounds);
+            Ok(())
+        }
+        Cmd::Analyze {
+            image,
+            scene,
+            force,
+        } => {
+            let bytes = std::fs::read(&image).map_err(|e| format!("{}: {e}", image.display()))?;
+            let name = image
+                .file_name()
+                .map(|n| n.to_string_lossy().into_owned())
+                .unwrap_or_default();
+            if !as_json {
+                println!("Analisando {name} com o Claude (pode levar alguns minutos)...");
+            }
+            let out = analyze::analyze(root, &bytes, &name, &scene, force)?;
+            if as_json {
+                println!("{out}");
+            } else {
+                println!("{}", serde_json::to_string_pretty(&out).unwrap_or_default());
+                println!(
+                    "Aprove os assets novos na página (dois cliques no voxel) para montar a cena."
+                );
+            }
             Ok(())
         }
         Cmd::Export {
@@ -125,11 +178,18 @@ fn run(root: &std::path::Path, cmd: Option<Cmd>) -> Result<(), String> {
                     "aviso: voxel de {voxel_mm} mm é menor que 0,8 mm; pode não imprimir bem"
                 );
             }
+            let mut files = vec![];
             for f in &format {
                 let scale = if f == "stl" { voxel_mm } else { voxel_m };
                 let path = out.join(format!("{name}.{f}"));
                 std::fs::write(&path, export::export(&g, f, scale)?).map_err(|e| e.to_string())?;
-                println!("{f}: {} ({} voxels)", path.display(), g.vox.len());
+                if !as_json {
+                    println!("{f}: {} ({} voxels)", path.display(), g.vox.len());
+                }
+                files.push(path.display().to_string());
+            }
+            if as_json {
+                println!("{}", json!({ "files": files, "voxels": g.vox.len() }));
             }
             Ok(())
         }

@@ -22,6 +22,10 @@
   textarea { flex: 1 1 240px; background: var(--bg); color: var(--text); border: 1px solid var(--line); border-radius: 6px; padding: 6px; font: inherit; min-height: 36px; }
   #info { color: var(--muted); width: 100%; }
   .sep { flex: 1; }
+  .box { display: grid; gap: 6px; grid-template-columns: minmax(0, 1fr); }
+  .box > * { width: 100%; }
+  .box input { background: var(--bg); color: var(--text); border: 1px solid var(--line); border-radius: 6px; padding: 6px; font: inherit; min-width: 0; }
+  .muted { color: var(--muted); font-size: 12px; white-space: pre-wrap; overflow-wrap: anywhere; }
   @media (max-width: 700px) { body { grid-template-columns: 1fr; grid-template-rows: 40vh 1fr; } }
 </style>
 </head>
@@ -29,6 +33,14 @@
 <aside>
   <h2>Assets</h2><div id="assets"></div>
   <h2>Cenas</h2><div id="scenes"></div>
+  <h2>Nova cena a partir de imagem</h2>
+  <form id="analyze" class="box">
+    <input type="file" id="img" accept="image/png,image/jpeg,image/webp,image/gif" required>
+    <input id="sname" placeholder="nome da cena (ex.: cabana)" pattern="[a-z0-9-]+" required>
+    <input id="key" type="password" placeholder="chave da API do Claude" hidden>
+    <button>Analisar com Claude</button>
+    <div id="astatus" class="muted"></div>
+  </form>
 </aside>
 <main>
   <canvas id="view"></canvas>
@@ -147,6 +159,25 @@ document.querySelectorAll('[data-f]').forEach((b) => b.onclick = () => {
 
 $('#review').style.display = 'none';
 $('#exp').style.display = 'none';
+api('/api/key').then((k) => { $('#key').hidden = k.set; $('#key').required = !k.set; });
+$('#analyze').onsubmit = async (e) => {
+  e.preventDefault();
+  const file = $('#img').files[0], name = $('#sname').value.trim(), st = $('#astatus');
+  const ext = file.name.split('.').pop().toLowerCase();
+  try {
+    if (!$('#key').hidden) await api('/api/key', { method: 'POST', body: JSON.stringify({ key: $('#key').value }) });
+    $('#key').hidden = true;
+    st.textContent = 'Analisando... pode levar alguns minutos.';
+    const r = await api(`/api/analyze/${name}/${ext}`, { method: 'POST', body: file });
+    st.textContent = `Pronto. Novos (aguardando aprovação): ${r.created_pending.join(', ') || 'nenhum'}`
+      + (r.manual.length ? `\nFazer à mão: ${r.manual.map((m) => m.name).join(', ')}` : '')
+      + (r.notes ? `\n${r.notes}` : '');
+    await load();
+  } catch (err) {
+    st.textContent = 'Erro: ' + err.message;
+    if (err.message.includes(' 401')) { $('#key').hidden = false; $('#key').required = true; $('#key').value = ''; }
+  }
+};
 fit();
 load();
 </script>

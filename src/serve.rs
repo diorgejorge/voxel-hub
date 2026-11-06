@@ -1,4 +1,5 @@
 //! Página local: galeria de assets, aprovação e exportação. Só escuta em 127.0.0.1.
+use crate::analyze;
 use crate::export::export;
 use crate::library::{self as lib, Asset};
 use crate::voxel::{mesh, Grid};
@@ -67,6 +68,31 @@ fn route(root: &Path, req: &mut Request) -> Result<Res, String> {
             let comment = v["comment"].as_str().map(String::from);
             let a: Asset = lib::review(root, id, action, comment)?;
             Ok(json(&a))
+        }
+        (Method::Get, ["api", "key"]) => Ok(json(
+            &serde_json::json!({ "set": analyze::api_key(root).is_some() }),
+        )),
+        (Method::Post, ["api", "key"]) => {
+            let mut body = String::new();
+            req.as_reader()
+                .read_to_string(&mut body)
+                .map_err(|e| e.to_string())?;
+            let v: serde_json::Value = serde_json::from_str(&body).map_err(|e| e.to_string())?;
+            analyze::save_key(root, v["key"].as_str().unwrap_or(""))?;
+            Ok(json(&serde_json::json!({ "set": true })))
+        }
+        (Method::Post, ["api", "analyze", scene, ext]) => {
+            let mut img = Vec::new();
+            req.as_reader()
+                .read_to_end(&mut img)
+                .map_err(|e| e.to_string())?;
+            Ok(json(&analyze::analyze(
+                root,
+                &img,
+                &format!("{scene}.{ext}"),
+                scene,
+                false,
+            )?))
         }
         _ => Ok(Response::from_string("não encontrado").with_status_code(404)),
     }
